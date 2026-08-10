@@ -42,37 +42,7 @@
 
 ---
 
-## 2. Detailed Database Tables Schema
-
-### Users & Organization (Tenants)
-- **`users`**: Platform user identity (name, email, password, role, status).
-- **`organizations`**: Main account/tenant level (e.g. "Sharma Hospitality Group").
-- **`organization_users`**: Pivot table connecting users to organizations with roles.
-
-### Businesses & Branches
-- **`businesses`**: Specific brand/business under an organization (name, slug, category_id, google_review_url, logo).
-- **`branches`**: Physical locations under a business (address, city, lat, long, status).
-
-### QR Codes & Sessions
-- **`qr_codes`**: QR tokens mapped to a business and branch (token_hash, destination_type, scan_count).
-- **`qr_scans`**: Analytics events for scans (device, browser, location, scanned_at).
-- **`review_sessions`**: Anonymous customer interaction session tracking funnel conversion.
-
-### Feedback & AI Review Intelligence
-- **`feedbacks`**: Original customer rating & raw comments.
-- **`feedback_analysis`**: AI sentiment score, topic tagging, and summarization.
-- **`review_drafts`**: AI-generated polished review variations with token tracking.
-- **`review_events`**: Funnel event tracking (`draft_generated`, `draft_edited`, `google_clicked`, `completed`).
-
-### Billing & Usage Tracking
-- **`plans`**: Pricing tiers, limits (max_branches, max_qr_codes, max_ai_generations).
-- **`subscriptions`**: Active organization plan states.
-- **`payments`**: Transaction records.
-- **`usage_records`**: Metered usage tracking (`ai_generation`, `feedback_submitted`, `qr_scan`).
-
----
-
-## 3. Dynamic Subdomain Architecture (`*.reviewflow.in`)
+## 2. Dynamic Subdomain Architecture (`*.reviewflow.in`)
 
 ### Subdomain Layout
 - `reviewflow.in` → Marketing & Public landing page
@@ -81,18 +51,20 @@
 - `api.reviewflow.in` → Laravel Backend API
 - `{slug}.reviewflow.in` → Public customer review page (e.g., `brewbliss.reviewflow.in`)
 
-### Technical Implementation
-1. **Wildcard DNS**: Single wildcard DNS A record (`*.reviewflow.in`) pointing to the application server (Cloudflare / Vercel).
-2. **No Dynamic DNS Creation**: Subdomains are resolved dynamically at runtime by extracting the `hostname` slug in Next.js middleware and querying Laravel `GET /api/v1/public/business/{slug}`.
-3. **Route Mapping**:
-   - `brewbliss.reviewflow.in/q/{token}` → Resolves Business: *Brew & Bliss*, Branch: *Udaipur*, QR: *Table 01*.
-4. **Local Development**: Modern browsers resolve `*.localhost` to local machine (e.g., `brewbliss.localhost:3000`).
-
 ---
 
-## 4. Phased Implementation Strategy
-- **Phase 1**: Auth & Multi-Tenancy (`users`, `organizations`, `organization_users`)
-- **Phase 2**: Core Business (`business_categories`, `businesses`, `branches`)
-- **Phase 3**: Review Engine (`qr_codes`, `qr_scans`, `review_sessions`, `feedbacks`, `review_drafts`, `review_events`)
-- **Phase 4**: Billing & Usage Metering (`plans`, `subscriptions`, `payments`, `usage_records`)
-- **Phase 5**: Intelligence (`feedback_analysis`, `review_questions`, `ai_prompt_templates`)
+## 3. UI & Frontend Architecture
+
+### Shared UI Library (`packages/ui`)
+- Hosted as `@repo/ui`. All shadcn/ui components (`Button`, `Dialog`, `DropdownMenu`, `Input`, `Table`) live in `packages/ui/src/components/ui/`.
+- Styling: OKLCH design variables and Tailwind CSS v4 `@theme` configuration.
+- Icons: `lucide-react` used across components.
+
+### TanStack Query Setup
+- Package: `@tanstack/react-query` v5.
+- Provider: `apps/reviewflow/app/providers.tsx` wraps `RootLayout` in `layout.tsx` to handle client-side caching and server-side re-hydration.
+
+### Customer Review Writing Experience
+- **Location**: `apps/reviewflow/components/customer-review-screen.tsx`.
+- **Routes**: `/` (home) and `/q/[token]` (QR scan endpoint).
+- **Features**: Velvet Glassmorphism design, star rating bar, Lucide icon chips, real-time AI review generator, copy toast, and Google Review CTA.
