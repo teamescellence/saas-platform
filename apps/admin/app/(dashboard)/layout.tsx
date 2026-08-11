@@ -18,16 +18,16 @@ import {
 } from "lucide-react";
 
 const ADMIN_NAV_ITEMS = [
-  { label: "Overview", href: "/", icon: LayoutDashboard },
-  { label: "Businesses", href: "/businesses", icon: Building2 },
-  { label: "Users", href: "/users", icon: Users },
-  { label: "Plans", href: "/plans", icon: Layers },
-  { label: "Subscriptions", href: "/subscriptions", icon: CreditCard },
-  { label: "Payments", href: "/payments", icon: Receipt },
-  { label: "Usage", href: "/usage", icon: BarChart3 },
-  { label: "QR Codes", href: "/qr-codes", icon: QrCode },
-  { label: "AI Usage", href: "/ai-usage", icon: Sparkles },
-  { label: "Settings", href: "/settings", icon: Settings },
+  { title: "Overview", url: "/", icon: LayoutDashboard },
+  { title: "Businesses", url: "/businesses", icon: Building2 },
+  { title: "Users", url: "/users", icon: Users },
+  { title: "Plans", url: "/plans", icon: Layers },
+  { title: "Subscriptions", url: "/subscriptions", icon: CreditCard },
+  { title: "Payments", url: "/payments", icon: Receipt },
+  { title: "Usage", url: "/usage", icon: BarChart3 },
+  { title: "QR Codes", url: "/qr-codes", icon: QrCode },
+  { title: "AI Usage", url: "/ai-usage", icon: Sparkles },
+  { title: "Settings", url: "/settings", icon: Settings },
 ];
 
 export default function AdminDashboardLayout({ children }: { children: React.ReactNode }) {
@@ -39,7 +39,7 @@ export default function AdminDashboardLayout({ children }: { children: React.Rea
           name: MOCK_ADMIN_USER.name,
           email: MOCK_ADMIN_USER.email,
         }}
-        navItems={ADMIN_NAV_ITEMS}
+        navMain={ADMIN_NAV_ITEMS}
         title="ReviewFlow"
         subtitle="Admin Panel"
       />

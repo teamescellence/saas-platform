@@ -16,7 +16,11 @@ const statusConfig: Record<FeedbackStatus, { label: string; classes: string }> =
 };
 
 export function StatusBadge({ status, className }: StatusBadgeProps) {
-  const config = statusConfig[status];
+  const fallback = {
+    label: typeof status === "string" ? status.replace(/_/g, " ") : "Pending",
+    classes: "bg-slate-50 text-slate-600 border-slate-200 capitalize",
+  };
+  const config = statusConfig[status] || fallback;
   return (
     <span
       className={cn(
