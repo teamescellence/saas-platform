@@ -2,3 +2,44 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@repo/ui/styles.css";
+
+/* ─── ReviewFlow Global Styles ───────────────────────────────────────────── */
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: oklch(0.80 0.005 75);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.65 0.01 75);
+}
+
+/* Focus visible ring */
+*:focus-visible {
+  outline: 2px solid oklch(0.52 0.14 52 / 50%);
+  outline-offset: 2px;
+}
+
+/* Skeleton shimmer animation */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton-shimmer {
+  background: linear-gradient(90deg, oklch(0.94 0.005 75) 25%, oklch(0.97 0.003 75) 50%, oklch(0.94 0.005 75) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}

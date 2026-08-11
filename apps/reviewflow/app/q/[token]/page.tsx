@@ -8,15 +8,9 @@ interface PageProps {
 
 export default async function CustomerReviewPage({ params }: PageProps) {
   const resolvedParams = await params;
-  const tokenName = resolvedParams?.token ? resolvedParams.token.toUpperCase() : "TABLE 01";
+  const token = resolvedParams?.token || "";
 
   return (
-    <CustomerReviewScreen
-      businessName="Brew & Bliss Cafe"
-      category="Cafe & Bakery"
-      branchName="Udaipur Main Branch"
-      tableName={tokenName}
-      googleReviewUrl="https://g.page/review/brewbliss"
-    />
+    <CustomerReviewScreen token={token} />
   );
 }

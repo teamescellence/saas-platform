@@ -1,6 +1,10 @@
 "use client";
 
 import * as React from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Star,
   Sparkles,
@@ -8,302 +12,442 @@ import {
   ExternalLink,
   Check,
   RotateCcw,
-  Coffee,
-  Zap,
-  Smile,
-  Heart,
   Store,
   ShieldCheck,
-  MessageSquare,
-  ThumbsUp,
-  Award,
+  ArrowRight,
+  CheckCircle2,
+  Edit2,
 } from "lucide-react";
 import { Button } from "@repo/ui/components/ui/button";
 import { cn } from "@repo/ui/lib/utils";
+import { getCategoryDimensions } from "@/lib/mock-data";
+import { api, endpoints } from "@/lib/api";
+import { toast } from "sonner";
 
-interface TagOption {
-  id: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-}
+// Zod Validation Schema
+const reviewFormSchema = z.object({
+  rating: z.number().min(1).max(5),
+  selectedTags: z.array(z.string()),
+  customComment: z.string().max(5000, "Comment cannot exceed 5000 characters"),
+  aiDraft: z.string(),
+  isEditingDraft: z.boolean(),
+});
 
-const DEFAULT_TAGS: TagOption[] = [
-  { id: "quality", label: "Excellent Quality", icon: Coffee },
-  { id: "service", label: "Fast Service", icon: Zap },
-  { id: "staff", label: "Friendly Staff", icon: Smile },
-  { id: "vibe", label: "Great Ambience", icon: Heart },
-  { id: "value", label: "Worth the Price", icon: ThumbsUp },
-  { id: "clean", label: "Clean & Hygenic", icon: ShieldCheck },
-];
+type ReviewFormValues = z.infer<typeof reviewFormSchema>;
 
 interface CustomerReviewScreenProps {
-  businessName?: string;
-  category?: string;
-  logoUrl?: string;
-  googleReviewUrl?: string;
-  branchName?: string;
-  tableName?: string;
+  token: string;
 }
 
-export function CustomerReviewScreen({
-  businessName = "Brew & Bliss Cafe",
-  category = "Cafe & Bakery",
-  logoUrl,
-  googleReviewUrl = "https://g.page/review/brewbliss",
-  branchName = "Udaipur Main Branch",
-  tableName = "Table 04",
-}: CustomerReviewScreenProps) {
-  const [rating, setRating] = React.useState<number>(5);
+export function CustomerReviewScreen({ token }: CustomerReviewScreenProps) {
+  // Page Step State (1: Rating, 2: Comments, 3: AI Draft, 4: Preview/Google Redirect, 5: Thank You)
+  const [step, setStep] = React.useState<number>(1);
   const [hoveredRating, setHoveredRating] = React.useState<number | null>(null);
-  const [selectedTags, setSelectedTags] = React.useState<string[]>(["quality", "staff"]);
-  const [customComment, setCustomComment] = React.useState<string>("");
-  const [aiDraft, setAiDraft] = React.useState<string>("");
-  const [isGenerating, setIsGenerating] = React.useState<boolean>(false);
   const [copied, setCopied] = React.useState<boolean>(false);
 
-  // Auto-generate AI Draft based on rating, selected tags, and custom comment
-  const generateAiReview = React.useCallback(() => {
-    setIsGenerating(true);
-    setTimeout(() => {
-      let draft = "";
-      const selectedTagLabels = DEFAULT_TAGS.filter((t) =>
-        selectedTags.includes(t.id)
-      ).map((t) => t.label.toLowerCase());
+  // Initialize React Hook Form
+  const form = useForm<ReviewFormValues>({
+    resolver: zodResolver(reviewFormSchema),
+    defaultValues: {
+      rating: 5,
+      selectedTags: [],
+      customComment: "",
+      aiDraft: "",
+      isEditingDraft: false,
+    },
+  });
 
-      if (rating >= 4) {
-        draft = `Had a wonderful experience at ${businessName}! `;
-        if (selectedTagLabels.length > 0) {
-          draft += `Particularly impressed with their ${selectedTagLabels.join(" and ")}. `;
-        }
-        if (customComment.trim()) {
-          draft += `${customComment.trim()} `;
-        } else {
-          draft += `The staff were attentive and the atmosphere was vibrant. Highly recommended!`;
-        }
-      } else if (rating === 3) {
-        draft = `Decent visit to ${businessName}. `;
-        if (selectedTagLabels.length > 0) {
-          draft += `Appreciated the ${selectedTagLabels.join(", ")}, `;
-        }
-        if (customComment.trim()) {
-          draft += `however: ${customComment.trim()}`;
-        } else {
-          draft += `though there is room for improvement in overall service speed.`;
-        }
+  const { register, handleSubmit, setValue, watch, getValues } = form;
+
+  // Watch necessary form values for UI rendering
+  const formRating = watch("rating");
+  const formSelectedTags = watch("selectedTags");
+  const formAiDraft = watch("aiDraft");
+  const formIsEditingDraft = watch("isEditingDraft");
+
+  // TanStack Query for session retrieval
+  const { data: sessionData, isLoading: loadingSession, error: queryError } = useQuery({
+    queryKey: ["reviewSession", token],
+    queryFn: () => api.get<any>(endpoints.publicReviewSession(token)),
+    enabled: !!token,
+    retry: false,
+  });
+
+  // Extract dynamic details from server response
+  const businessName = sessionData?.business?.name || "Brew & Bliss Cafe";
+  const category = sessionData?.business?.category || "cafe";
+  const logoUrl = sessionData?.business?.logo;
+  const googleReviewUrl = sessionData?.business?.google_review_url || "https://search.google.com/local/writereview?placeid=ChIJTY-4QhBrrjsRIqHp8MDYbHs";
+  const branchName = sessionData?.branch?.name || "Main Branch";
+  const tableName = sessionData?.qr_code?.name || "Table";
+
+  const dimensions = getCategoryDimensions(category as any);
+
+  // TanStack Query Mutation for AI review generation
+  const generateDraftMutation = useMutation({
+    mutationFn: async (overrides?: { comment?: string; rating?: number }) => {
+      const payload: any = {};
+      
+      if (overrides?.comment !== undefined) {
+        payload.comment = overrides.comment;
       } else {
-        draft = `Visiting ${businessName} fell short of expectations. `;
-        if (customComment.trim()) {
-          draft += `${customComment.trim()}`;
-        } else {
-          draft += `Hoping the management addresses service consistency soon.`;
-        }
+        const rawComment = getValues("customComment");
+        const tags = getValues("selectedTags");
+        payload.comment = tags.length > 0 
+          ? `Highlights: ${tags.join(", ")}. ${rawComment}`
+          : rawComment;
       }
-      setAiDraft(draft.trim());
-      setIsGenerating(false);
-    }, 350);
-  }, [rating, selectedTags, customComment, businessName]);
 
-  React.useEffect(() => {
-    generateAiReview();
-  }, [rating, selectedTags, generateAiReview]);
+      if (overrides?.rating !== undefined) {
+        payload.rating = overrides.rating;
+      } else {
+        payload.rating = getValues("rating");
+      }
 
-  const toggleTag = (tagId: string) => {
-    setSelectedTags((prev) =>
-      prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]
-    );
+      return api.post<any>(endpoints.publicGenerateDraft(token), payload);
+    },
+    onSuccess: (data) => {
+      setValue("aiDraft", data.draft?.generated_text || "");
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "AI review generation failed");
+    },
+  });
+
+  // TanStack Query Mutation for submitting raw feedback
+  const submitFeedbackMutation = useMutation({
+    mutationFn: async () => {
+      const rawComment = getValues("customComment");
+      const tags = getValues("selectedTags");
+      const commentText = tags.length > 0 
+        ? `Highlights: ${tags.join(", ")}. ${rawComment}`
+        : rawComment;
+
+      return api.post<any>(endpoints.publicSubmitFeedback(token), {
+        rating: getValues("rating"),
+        comment: commentText,
+        language: "en",
+      });
+    },
+    onSuccess: () => {
+      setStep(3);
+      generateDraftMutation.mutate(undefined);
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to submit feedback");
+    },
+  });
+
+  const onSubmit = () => {
+    if (step === 2) {
+      submitFeedbackMutation.mutate();
+    }
+  };
+
+  const handleNextStep = () => {
+    setStep((prev) => prev + 1);
+  };
+
+  const handleBackStep = () => {
+    setStep((prev) => prev - 1);
+  };
+
+  const toggleTag = (tag: string) => {
+    const currentTags = getValues("selectedTags");
+    const newTags = currentTags.includes(tag)
+      ? currentTags.filter((t: string) => t !== tag)
+      : [...currentTags, tag];
+    setValue("selectedTags", newTags);
   };
 
   const handleCopyAndRedirect = () => {
-    if (aiDraft) {
-      navigator.clipboard.writeText(aiDraft);
+    const draftText = getValues("aiDraft");
+    if (draftText) {
+      navigator.clipboard.writeText(draftText);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
+      setTimeout(() => setCopied(false), 2000);
     }
     if (googleReviewUrl) {
       window.open(googleReviewUrl, "_blank", "noopener,noreferrer");
     }
+    setStep(5); // Go to thank you screen
   };
 
-  const currentDisplayRating = hoveredRating !== null ? hoveredRating : rating;
+  const currentDisplayRating = hoveredRating !== null ? hoveredRating : formRating;
+
+  if (loadingSession) {
+    return (
+      <div className="min-h-screen w-full bg-background flex flex-col items-center justify-center p-4 max-w-md mx-auto border-x border-border/40 shadow-2xl">
+        <div className="flex flex-col items-center gap-4">
+          <div className="size-16 rounded-2xl bg-primary/10 flex items-center justify-center animate-pulse">
+            <Store className="size-8 text-primary animate-spin" />
+          </div>
+          <p className="text-sm text-muted-foreground font-semibold">Resolving ReviewFlow Session...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (queryError) {
+    const errorMsg = (queryError as any).message || "Failed to load review session. Invalid or expired link.";
+    return (
+      <div className="min-h-screen w-full bg-background flex flex-col items-center justify-center p-6 text-center max-w-md mx-auto border-x border-border/40 shadow-2xl space-y-6">
+        <div className="size-16 rounded-full bg-destructive/10 flex items-center justify-center text-destructive mx-auto">
+          <ShieldCheck className="size-8" />
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-xl font-bold tracking-tight">Review Link Expired</h2>
+          <p className="text-sm text-muted-foreground px-4">{errorMsg}</p>
+        </div>
+        <Button variant="outline" onClick={() => window.location.reload()} className="h-11 rounded-xl">
+          Try Again
+        </Button>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col items-center justify-start p-4 md:p-8 font-sans relative">
-      {/* Soft Background Accent Glows */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-4xl h-72 bg-gradient-to-b from-blue-100/60 via-indigo-50/40 to-transparent blur-2xl pointer-events-none" />
+    <div className="min-h-screen w-full bg-background flex flex-col items-center justify-between p-4 font-sans relative max-w-md mx-auto border-x border-border/40 shadow-2xl">
+      {/* Background soft gradients */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-40 bg-gradient-to-b from-primary/5 to-transparent blur-xl pointer-events-none" />
 
-      {/* Main Container Card */}
-      <div className="w-full max-w-md z-10 flex flex-col gap-5">
-        {/* Header Branding Card */}
-        <header className="flex flex-col items-center text-center gap-3 p-6 rounded-2xl bg-white border border-slate-200/80 shadow-xl shadow-slate-200/50">
-          <div className="size-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 p-0.5 shadow-md flex items-center justify-center">
-            <div className="size-full bg-white rounded-[14px] flex items-center justify-center">
-              {logoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={logoUrl} alt={businessName} className="size-9 rounded-lg" />
-              ) : (
-                <Store className="size-8 text-blue-600" />
-              )}
+      {/* Top Header Section */}
+      <header className="w-full flex flex-col items-center text-center py-4 border-b border-border/50 shrink-0">
+        <div className="size-12 rounded-xl bg-primary/10 flex items-center justify-center mb-2">
+          {logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={logoUrl} alt={businessName} className="size-8 rounded-lg" />
+          ) : (
+            <Store className="size-6 text-primary" />
+          )}
+        </div>
+        <h1 className="text-lg font-bold tracking-tight text-foreground">{businessName}</h1>
+        <p className="text-xs text-muted-foreground font-medium">
+          {branchName} • <span className="text-primary font-semibold">{tableName}</span>
+        </p>
+      </header>
+
+      {/* Main Form Content Container */}
+      <main className="flex-1 w-full flex flex-col justify-center py-6">
+        {/* Step 1: Rating Screen */}
+        {step === 1 && (
+          <div className="space-y-6 text-center animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <div className="space-y-1">
+              <h2 className="text-xl font-extrabold tracking-tight">How was your experience?</h2>
+              <p className="text-sm text-muted-foreground">Tap stars to share your rating</p>
             </div>
-          </div>
-          <div>
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-50 border border-blue-200 text-[11px] font-semibold text-blue-700 mb-1">
-              <Award className="size-3 text-blue-600" />
-              <span>Verified Customer Review</span>
+
+            {/* Large Interactive Star Buttons */}
+            <div className="flex items-center justify-center gap-1.5 py-4">
+              {[1, 2, 3, 4, 5].map((star) => {
+                const isFilled = star <= currentDisplayRating;
+                return (
+                  <button
+                    key={star}
+                    type="button"
+                    onClick={() => {
+                      setValue("rating", star);
+                      handleNextStep();
+                    }}
+                    onMouseEnter={() => setHoveredRating(star)}
+                    onMouseLeave={() => setHoveredRating(null)}
+                    className={cn(
+                      "p-1.5 rounded-lg transition-transform active:scale-90 focus:outline-none",
+                      isFilled ? "text-amber-400 scale-110" : "text-muted-foreground/30"
+                    )}
+                    aria-label={`Rate ${star} Stars`}
+                  >
+                    <Star className="size-11 fill-current stroke-current" />
+                  </button>
+                );
+              })}
             </div>
-            <h1 className="text-xl font-bold tracking-tight text-slate-900">
-              {businessName}
-            </h1>
-            <p className="text-xs text-slate-500 flex items-center justify-center gap-2 mt-1 font-medium">
-              <span>{category}</span>
-              <span>•</span>
-              <span>{branchName}</span>
-              <span>•</span>
-              <span className="text-blue-600 font-semibold">{tableName}</span>
-            </p>
+
+            {/* Quick Dimension Selection Tags */}
+            {dimensions.length > 0 && (
+              <div className="space-y-2 pt-2">
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Select highlights</p>
+                <div className="flex flex-wrap justify-center gap-1.5">
+                  {dimensions.map((dim) => {
+                    const isSelected = formSelectedTags.includes(dim);
+                    return (
+                      <button
+                        key={dim}
+                        type="button"
+                        onClick={() => toggleTag(dim)}
+                        className={cn(
+                          "text-xs font-semibold px-3.5 py-2 rounded-full border transition-all cursor-pointer",
+                          isSelected
+                            ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                            : "bg-card border-border hover:bg-muted text-muted-foreground"
+                        )}
+                      >
+                        {dim}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
-        </header>
+        )}
 
-        {/* Step 1: Rating Selection */}
-        <section className="flex flex-col items-center gap-3.5 p-6 rounded-2xl bg-white border border-slate-200/80 shadow-xl shadow-slate-200/50">
-          <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            <MessageSquare className="size-4 text-blue-600" />
-            <span>How would you rate your visit?</span>
-          </div>
-
-          {/* Interactive Star Rating Bar */}
-          <div className="flex items-center gap-2 my-1">
-            {[1, 2, 3, 4, 5].map((star) => {
-              const isFilled = star <= currentDisplayRating;
-              return (
-                <button
-                  key={star}
-                  type="button"
-                  onClick={() => setRating(star)}
-                  onMouseEnter={() => setHoveredRating(star)}
-                  onMouseLeave={() => setHoveredRating(null)}
-                  className={cn(
-                    "p-2 rounded-xl transition-all duration-200 focus:outline-none transform active:scale-95",
-                    isFilled
-                      ? "text-amber-400 drop-shadow-[0_2px_8px_rgba(251,191,36,0.35)] scale-110"
-                      : "text-slate-300 hover:text-slate-400"
-                  )}
-                  aria-label={`Rate ${star} stars`}
-                >
-                  <Star className="size-8 fill-current stroke-current" />
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="text-xs font-semibold text-amber-700 bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
-            {currentDisplayRating === 5 && "Outstanding Experience"}
-            {currentDisplayRating === 4 && "Great Experience"}
-            {currentDisplayRating === 3 && "Good / Average Visit"}
-            {currentDisplayRating === 2 && "Fair / Needs Improvement"}
-            {currentDisplayRating === 1 && "Poor Experience"}
-          </div>
-        </section>
-
-        {/* Step 2: Quick Highlight Chips */}
-        <section className="flex flex-col gap-3 p-6 rounded-2xl bg-white border border-slate-200/80 shadow-xl shadow-slate-200/50">
-          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            What did you like most?
-          </h3>
-          <div className="flex flex-wrap gap-2">
-            {DEFAULT_TAGS.map((tag) => {
-              const IconComp = tag.icon;
-              const isSelected = selectedTags.includes(tag.id);
-              return (
-                <button
-                  key={tag.id}
-                  type="button"
-                  onClick={() => toggleTag(tag.id)}
-                  className={cn(
-                    "inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium border transition-all duration-200 cursor-pointer",
-                    isSelected
-                      ? "bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-200"
-                      : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                  )}
-                >
-                  <IconComp className={cn("size-3.5", isSelected ? "text-white" : "text-blue-600")} />
-                  <span>{tag.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* Step 3: Optional Comment Input */}
-        <section className="flex flex-col gap-2 p-6 rounded-2xl bg-white border border-slate-200/80 shadow-xl shadow-slate-200/50">
-          <label
-            htmlFor="custom-comment"
-            className="text-xs font-semibold text-slate-500 uppercase tracking-wider"
-          >
-            Add Specific Comments (Optional)
-          </label>
-          <textarea
-            id="custom-comment"
-            rows={2}
-            value={customComment}
-            onChange={(e) => setCustomComment(e.target.value)}
-            placeholder="e.g. Tried the caramel latte, excellent service by Sam..."
-            className="w-full rounded-xl bg-slate-50 border border-slate-200 p-3 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 transition-all resize-none"
-          />
-        </section>
-
-        {/* Step 4: AI Review Assistant Box */}
-        <section className="flex flex-col gap-3 p-6 rounded-2xl bg-gradient-to-b from-blue-50/80 to-indigo-50/50 border border-blue-200 shadow-xl shadow-blue-100/50 relative">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs font-bold text-blue-900">
-              <Sparkles className="size-4 text-blue-600" />
-              <span>AI Review Assistant</span>
+        {/* Step 2: Custom Comments Screen */}
+        {step === 2 && (
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <div className="space-y-1">
+              <h2 className="text-lg font-bold">Tell us about your experience</h2>
+              <p className="text-xs text-muted-foreground">What stood out during your visit?</p>
             </div>
-            <button
-              type="button"
-              onClick={generateAiReview}
-              className="text-[11px] font-medium text-blue-700 hover:text-blue-900 flex items-center gap-1 transition-colors"
-            >
-              <RotateCcw className="size-3" />
-              <span>Refresh</span>
-            </button>
-          </div>
 
-          <div className="p-3.5 rounded-xl bg-white border border-blue-100 text-xs/relaxed text-slate-700 font-medium italic relative shadow-sm">
-            {isGenerating ? (
-              <div className="flex items-center gap-2 text-slate-500 py-1">
-                <Sparkles className="size-3.5 animate-spin text-blue-600" />
-                <span>Crafting your authentic review...</span>
+            <textarea
+              {...register("customComment")}
+              placeholder="Tell us what you liked or what could be better..."
+              rows={4}
+              className="w-full rounded-xl border border-border bg-card p-3.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/50 resize-none h-32"
+            />
+
+            <div className="flex gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 h-12 rounded-xl"
+                onClick={handleBackStep}
+                disabled={submitFeedbackMutation.isPending}
+              >
+                Back
+              </Button>
+              <Button
+                type="submit"
+                className="flex-1 h-12 rounded-xl"
+                disabled={submitFeedbackMutation.isPending}
+              >
+                {submitFeedbackMutation.isPending ? "Submitting..." : "Continue"}
+              </Button>
+            </div>
+          </form>
+        )}
+
+        {/* Step 3: AI Assistant Draft Screen */}
+        {step === 3 && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-primary flex items-center gap-1">
+                <Sparkles className="size-4 animate-pulse" /> AI Review Assistant
+              </h2>
+              <button
+                type="button"
+                onClick={() => {
+                  const rawComment = getValues("customComment");
+                  const tags = getValues("selectedTags");
+                  const commentText = tags.length > 0 
+                    ? `Highlights: ${tags.join(", ")}. ${rawComment}`
+                    : rawComment;
+                  generateDraftMutation.mutate({ comment: commentText, rating: formRating });
+                }}
+                disabled={generateDraftMutation.isPending}
+                className="text-xs font-semibold text-muted-foreground hover:text-foreground flex items-center gap-1 disabled:opacity-50"
+              >
+                <RotateCcw className="size-3.5" /> Regenerate
+              </button>
+            </div>
+
+            {generateDraftMutation.isPending ? (
+              <div className="rounded-xl border border-border bg-card p-8 flex flex-col items-center justify-center text-center gap-3 min-h-[160px]">
+                <Sparkles className="size-8 text-primary animate-spin" />
+                <p className="text-xs text-muted-foreground font-semibold">Generating your review...</p>
               </div>
             ) : (
-              <p>{aiDraft || "Select rating and tags above to generate your review."}</p>
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground">Here&apos;s a polished version of what you told us.</p>
+                <textarea
+                  {...register("aiDraft")}
+                  disabled={!formIsEditingDraft}
+                  rows={5}
+                  className={cn(
+                    "w-full rounded-xl border p-3.5 text-sm leading-relaxed resize-none italic h-40",
+                    formIsEditingDraft
+                      ? "border-primary bg-background not-italic"
+                      : "border-border bg-muted/30 text-foreground/80 cursor-not-allowed"
+                  )}
+                />
+                <p className="text-[10px] text-center text-muted-foreground">You control the final review text and can edit it anytime.</p>
+              </div>
             )}
+
+            <div className="flex flex-col gap-2">
+              <Button
+                variant="outline"
+                className="w-full h-12 rounded-xl gap-1.5"
+                onClick={() => setValue("isEditingDraft", !formIsEditingDraft)}
+                disabled={generateDraftMutation.isPending}
+              >
+                <Edit2 className="size-4" /> {formIsEditingDraft ? "Save Edit" : "Edit Draft"}
+              </Button>
+              <Button
+                className="w-full h-12 rounded-xl gap-1.5"
+                onClick={handleNextStep}
+                disabled={generateDraftMutation.isPending || !formAiDraft}
+              >
+                Use This Review <ArrowRight className="size-4" />
+              </Button>
+            </div>
           </div>
+        )}
 
-          {/* Direct Copy & Post CTA Button */}
-          <Button
-            onClick={handleCopyAndRedirect}
-            disabled={isGenerating || !aiDraft}
-            className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl shadow-lg shadow-blue-500/25 transition-all flex items-center justify-center gap-2 active:scale-[0.99]"
-          >
-            {copied ? (
-              <>
-                <Check className="size-4 text-emerald-300" />
-                <span>Copied! Opening Google Reviews...</span>
-              </>
-            ) : (
-              <>
-                <Copy className="size-4" />
-                <span>Copy Review & Post on Google</span>
-                <ExternalLink className="size-3.5 ml-1 opacity-80" />
-              </>
-            )}
-          </Button>
+        {/* Step 4: Preview/Redirect */}
+        {step === 4 && (
+          <div className="space-y-4 text-center animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <h2 className="text-lg font-bold">Ready to share?</h2>
+            <p className="text-xs text-muted-foreground">We will copy the review so you can paste it directly on Google Reviews.</p>
 
-          <p className="text-[11px] text-center text-slate-500 font-medium">
-            Your review will be copied automatically so you can paste it directly on Google.
-          </p>
-        </section>
-      </div>
+            <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 italic text-sm text-foreground/90 max-h-32 overflow-y-auto leading-relaxed">
+              &quot;{formAiDraft}&quot;
+            </div>
+
+            <div className="flex flex-col gap-2 pt-2">
+              <Button
+                className="w-full h-12 rounded-xl gap-1.5 shadow-lg shadow-primary/20"
+                onClick={handleCopyAndRedirect}
+              >
+                {copied ? (
+                  <>
+                    <Check className="size-4" /> Copied Review!
+                  </>
+                ) : (
+                  <>
+                    <Copy className="size-4" /> Continue to Google <ExternalLink className="size-3.5" />
+                  </>
+                )}
+              </Button>
+              <Button variant="ghost" className="w-full h-12 rounded-xl" onClick={handleBackStep}>
+                Back to Edit
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 5: Thank you */}
+        {step === 5 && (
+          <div className="text-center py-8 space-y-6 animate-in fade-in duration-500">
+            <div className="mx-auto size-16 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center">
+              <CheckCircle2 className="size-8 text-emerald-600 animate-bounce" />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-xl font-extrabold text-foreground">Thank you!</h2>
+              <p className="text-sm text-muted-foreground px-4 leading-relaxed">
+                Thanks for sharing your experience and supporting <strong className="text-foreground">{businessName}</strong>.
+              </p>
+            </div>
+            <p className="text-xs text-muted-foreground/60 italic pt-6">ReviewFlow • Authentic Local Businesses Reviews</p>
+          </div>
+        )}
+      </main>
+
+      {/* Mobile Footer Indicator */}
+      <footer className="w-full py-3 border-t border-border/50 text-center text-[10px] text-muted-foreground shrink-0">
+        Secure feedback verified by ReviewFlow AI
+      </footer>
     </div>
   );
 }
