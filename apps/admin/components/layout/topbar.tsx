@@ -5,7 +5,7 @@ import { Button } from "@repo/ui/components/ui/button";
 import { Input } from "@repo/ui/components/ui/input";
 import { SidebarTrigger } from "@repo/ui/components/ui/sidebar";
 import { Separator } from "@repo/ui/components/ui/separator";
-import { BusinessAvatar } from "../ui/business-avatar";
+import { BusinessAvatar } from "@repo/ui/components/ui/business-avatar";
 import { MOCK_CURRENT_USER } from "../../lib/mock-data";
 
 export function Topbar() {

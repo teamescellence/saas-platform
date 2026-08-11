@@ -17,7 +17,7 @@ import {
 import { toast } from "sonner";
 import { Search, Plus, MoreVertical, ShieldAlert, Key, LogIn, Edit, Ban } from "lucide-react";
 import { format } from "date-fns";
-import { BusinessAvatar } from "@/components/ui/business-avatar";
+import { BusinessAvatar } from "@repo/ui/components/ui/business-avatar";
 import Link from "next/link";
 
 export default function AdminBusinessesPage() {

@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@repo
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@repo/ui/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@repo/ui/components/ui/select";
 import { format } from "date-fns";
-import { BusinessAvatar } from "@/components/ui/business-avatar";
+import { BusinessAvatar } from "@repo/ui/components/ui/business-avatar";
 import { Badge } from "@repo/ui/components/ui/badge";
 
 export default function AdminPaymentsPage() {

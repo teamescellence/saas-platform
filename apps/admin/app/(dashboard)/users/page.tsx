@@ -4,7 +4,7 @@ import * as React from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@repo/ui/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@repo/ui/components/ui/table";
 import { format } from "date-fns";
-import { BusinessAvatar } from "@/components/ui/business-avatar";
+import { BusinessAvatar } from "@repo/ui/components/ui/business-avatar";
 import { Badge } from "@repo/ui/components/ui/badge";
 
 export default function AdminUsersPage() {

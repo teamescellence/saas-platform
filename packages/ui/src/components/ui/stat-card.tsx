@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@repo/ui/lib/utils";
+import { cn } from "../../lib/utils";
 import { type LucideIcon, TrendingUp, TrendingDown } from "lucide-react";
 
 interface StatCardProps {
