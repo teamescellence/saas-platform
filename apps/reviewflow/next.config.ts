@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
+import devOrigins from "../../allowed-dev-origins.js";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  allowedDevOrigins: devOrigins,
 };
 
 export default nextConfig;
+
