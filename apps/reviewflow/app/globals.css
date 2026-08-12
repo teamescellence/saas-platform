@@ -3,6 +3,57 @@
 @import "shadcn/tailwind.css";
 @import "@repo/ui/styles.css";
 
+@source "../../../packages/ui/src/**/*.tsx";
+@source "../../../packages/ui/src/**/*.ts";
+
+@theme inline {
+  --font-literata: var(--font-literata), serif;
+  --font-be-vietnam: var(--font-be-vietnam-pro), sans-serif;
+  --font-sans: var(--font-be-vietnam-pro), sans-serif;
+  
+  --color-primary: #944248;
+  --color-on-primary: #ffffff;
+  --color-primary-foreground: #ffffff;
+  --color-primary-fixed: #ffdada;
+  --color-primary-fixed-dim: #ffb3b5;
+  --color-secondary: #605e5b;
+  --color-secondary-fixed: #e6e2dd;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #fdf1eb;
+  --color-surface-container: #f7ece5;
+  --color-surface-container-high: #f2e6e0;
+  --color-surface-container-highest: #ece0da;
+  --color-surface: #fff8f5;
+  --color-on-surface: #201a17;
+  --color-on-surface-variant: #544243;
+  --color-outline-variant: #dac1c1;
+  --color-outline: #877272;
+}
+
+.shadow-warm-ambient {
+  box-shadow: 0 16px 32px -12px rgba(193, 102, 107, 0.12);
+}
+.shadow-warm-hover {
+  box-shadow: 0 24px 48px -12px rgba(193, 102, 107, 0.16);
+}
+.shadow-soft {
+  box-shadow: 0 16px 32px -12px rgba(193, 102, 107, 0.12);
+}
+
+@keyframes float-ambient {
+  0%, 100% { transform: translateY(0px) scale(1); }
+  50% { transform: translateY(-15px) scale(1.03); }
+}
+.animate-float {
+  animation: float-ambient 12s ease-in-out infinite;
+}
+.animate-float-delayed {
+  animation: float-ambient 16s ease-in-out infinite;
+  animation-delay: 3s;
+}
+
+
+
 /* ─── ReviewFlow Global Styles ───────────────────────────────────────────── */
 
 html {
