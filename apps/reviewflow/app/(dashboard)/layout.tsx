@@ -4,6 +4,8 @@ import { SidebarProvider, SidebarInset } from "@repo/ui/components/ui/sidebar";
 import { AppSidebar } from "@repo/ui/components/app-sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { MOCK_CURRENT_USER, MOCK_BRANCHES } from "@/lib/mock-data";
+import { useQuery } from "@tanstack/react-query";
+import { api, endpoints } from "@/lib/api";
 import {
   LayoutDashboard,
   Star,
@@ -29,11 +31,23 @@ const NAV_ITEMS = [
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const branches = MOCK_BRANCHES.map((b) => ({
-    name: b.name,
-    logo: Building2,
-    plan: "Active Branch",
-  }));
+  const { data: dbBranches = [] } = useQuery<any[]>({
+    queryKey: ["branches"],
+    queryFn: () => api.get<any[]>(endpoints.branches),
+  });
+
+  const branches = dbBranches.length > 0
+    ? dbBranches.map((b) => ({
+        name: b.name,
+        logo: Building2,
+        plan: b.is_active ? "Active Branch" : "Inactive",
+      }))
+    : MOCK_BRANCHES.map((b) => ({
+        name: b.name,
+        logo: Building2,
+        plan: "Active Branch",
+      }));
+
 
   return (
     <SidebarProvider>

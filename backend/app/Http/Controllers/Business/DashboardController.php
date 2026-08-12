@@ -280,4 +280,29 @@ class DashboardController extends Controller
             ]
         ]);
     }
+
+    public function branches(Request $request)
+    {
+        list($organization, $business) = $this->getBusinessForRequest($request);
+
+        $branches = $business->branches()->get()->map(function ($branch) {
+            return [
+                'id' => $branch->id,
+                'business_id' => $branch->business_id,
+                'name' => $branch->name,
+                'code' => $branch->code,
+                'phone' => $branch->phone,
+                'address' => $branch->address_line_1 . ($branch->address_line_2 ? ', ' . $branch->address_line_2 : ''),
+                'city' => $branch->city,
+                'state' => $branch->state,
+                'country' => $branch->country,
+                'postal_code' => $branch->postal_code,
+                'is_active' => $branch->status === 'active',
+                'created_at' => $branch->created_at ? $branch->created_at->toIso8601String() : null,
+            ];
+        });
+
+        return response()->json($branches);
+    }
 }
+

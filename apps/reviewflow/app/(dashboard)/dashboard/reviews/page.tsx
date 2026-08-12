@@ -45,6 +45,13 @@ export default function ReviewsPage() {
     queryFn: () => api.get<Feedback[]>(endpoints.dashboardRecentFeedback),
   });
 
+  const { data: dbBranches = [] } = useQuery<any[]>({
+    queryKey: ["branches"],
+    queryFn: () => api.get<any[]>(endpoints.branches),
+  });
+
+  const branches = dbBranches.length > 0 ? dbBranches : MOCK_BRANCHES;
+
   const [feedbacks, setFeedbacks] = React.useState<Feedback[]>(MOCK_FEEDBACK);
 
   React.useEffect(() => {
@@ -104,7 +111,8 @@ export default function ReviewsPage() {
     if (ratingFilter !== "all" && fb.rating.toString() !== ratingFilter) return false;
 
     // Branch filter
-    if (branchFilter !== "all" && fb.branch_id !== branchFilter) return false;
+    if (branchFilter !== "all" && String(fb.branch_id) !== branchFilter) return false;
+
 
     return true;
   });
@@ -151,13 +159,14 @@ export default function ReviewsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Branches</SelectItem>
-                  {MOCK_BRANCHES.map((br) => (
-                    <SelectItem key={br.id} value={br.id}>
+                  {branches.map((br) => (
+                    <SelectItem key={String(br.id)} value={String(br.id)}>
                       {br.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+
             </div>
 
             {/* Tab selector */}

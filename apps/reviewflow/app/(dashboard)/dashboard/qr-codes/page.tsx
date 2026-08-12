@@ -40,6 +40,20 @@ export default function QrCodesPage() {
     queryFn: () => api.get(endpoints.qrCodes),
   });
 
+  // Fetch branches
+  const { data: dbBranches = [] } = useQuery<any[]>({
+    queryKey: ["branches"],
+    queryFn: () => api.get<any[]>(endpoints.branches),
+  });
+
+  const branches = dbBranches.length > 0 ? dbBranches : MOCK_BRANCHES;
+
+  React.useEffect(() => {
+    if (branches.length > 0) {
+      setSelectedBranch(String(branches[0].id));
+    }
+  }, [dbBranches]);
+
   // Create QR Code Mutation
   const createQrMutation = useMutation({
     mutationFn: (payload: { name: string; branch_id: string }) => {
@@ -201,8 +215,8 @@ export default function QrCodesPage() {
                     <SelectValue placeholder="Select branch" />
                   </SelectTrigger>
                   <SelectContent>
-                    {MOCK_BRANCHES.map((b) => (
-                      <SelectItem key={b.id} value={b.id}>
+                    {branches.map((b) => (
+                      <SelectItem key={String(b.id)} value={String(b.id)}>
                         {b.name}
                       </SelectItem>
                     ))}

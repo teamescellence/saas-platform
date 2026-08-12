@@ -29,6 +29,13 @@ export default function FeedbackPage() {
     queryFn: () => api.get<Feedback[]>(endpoints.dashboardRecentFeedback),
   });
 
+  const { data: dbBranches = [] } = useQuery<any[]>({
+    queryKey: ["branches"],
+    queryFn: () => api.get<any[]>(endpoints.branches),
+  });
+
+  const branches = dbBranches.length > 0 ? dbBranches : MOCK_BRANCHES;
+
   const filteredFeedbacks = feedbacks.filter((fb) => {
     if (
       searchTerm &&
@@ -87,8 +94,8 @@ export default function FeedbackPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Branches</SelectItem>
-                {MOCK_BRANCHES.map((br) => (
-                  <SelectItem key={br.id} value={br.id}>
+                {branches.map((br) => (
+                  <SelectItem key={String(br.id)} value={String(br.id)}>
                     {br.name}
                   </SelectItem>
                 ))}

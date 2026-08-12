@@ -161,6 +161,8 @@ export const endpoints = {
   // Business
   business: "/business",
   businessUpdate: "/business",
+  branches: "/branches",
+
 
   // Subscription
   subscription: "/subscription",

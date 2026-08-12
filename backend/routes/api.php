@@ -38,6 +38,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/team', [DashboardController::class, 'team']);
         Route::get('/business', [DashboardController::class, 'businessInfo']);
         Route::get('/subscription', [DashboardController::class, 'subscription']);
+        Route::get('/branches', [DashboardController::class, 'branches']);
+
 
         // Admin Operations
         Route::prefix('admin')->group(function () {
