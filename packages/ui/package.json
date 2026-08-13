@@ -51,6 +51,7 @@
     "@types/react-dom": "19.2.2",
     "eslint": "^9.39.1",
     "tailwindcss": "^4",
+    "tailwindcss-motion": "^1.1.1",
     "typescript": "5.9.2"
   }
 }

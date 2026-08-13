@@ -13,7 +13,7 @@ Route::prefix('v1')->group(function () {
     Route::post('/auth/login', [AuthController::class, 'login']);
 
     // Public Review Flow
-    Route::prefix('public')->group(function () {
+    Route::prefix('public')->middleware(\Illuminate\Session\Middleware\StartSession::class)->group(function () {
         Route::get('/review/{token}', [ReviewSessionController::class, 'show']);
         Route::post('/review/{token}/feedback', [ReviewSessionController::class, 'submitFeedback']);
         Route::post('/review/{token}/generate', [ReviewSessionController::class, 'generateDraft']);

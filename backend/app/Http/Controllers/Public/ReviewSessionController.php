@@ -17,11 +17,60 @@ class ReviewSessionController extends Controller
 {
     public function show(string $token)
     {
+        // 1. Try to find by ReviewSession session_token directly
+        $existingSession = ReviewSession::where('session_token', $token)
+            ->where('expires_at', '>', now())
+            ->first();
+
+        if ($existingSession) {
+            $qrCode = $existingSession->qrCode;
+            $business = $existingSession->business;
+
+            return response()->json([
+                'session_token' => $existingSession->session_token,
+                'business' => [
+                    'name' => $business->name,
+                    'slug' => $business->slug,
+                    'logo' => $business->logo,
+                    'description' => $business->description,
+                    'google_review_url' => $business->google_review_url,
+                ],
+                'branch' => $qrCode->branch ? [
+                    'name' => $qrCode->branch->name,
+                ] : null,
+            ]);
+        }
+
+        // 2. Otherwise, look up by QrCode token_hash
         $qrCode = QrCode::where('token_hash', $token)
             ->where('status', 'active')
             ->firstOrFail();
 
         $business = $qrCode->business;
+        $sessionKey = 'review_session_' . $qrCode->id;
+
+        // Check if there is an active session stored in the Laravel session
+        if (session()->has($sessionKey)) {
+            $sessionFromSession = ReviewSession::where('id', session($sessionKey))
+                ->where('expires_at', '>', now())
+                ->first();
+
+            if ($sessionFromSession) {
+                return response()->json([
+                    'session_token' => $sessionFromSession->session_token,
+                    'business' => [
+                        'name' => $business->name,
+                        'slug' => $business->slug,
+                        'logo' => $business->logo,
+                        'description' => $business->description,
+                        'google_review_url' => $business->google_review_url,
+                    ],
+                    'branch' => $qrCode->branch ? [
+                        'name' => $qrCode->branch->name,
+                    ] : null,
+                ]);
+            }
+        }
 
         // 1. Increment QrCode scans
         $qrCode->increment('scan_count');
@@ -84,6 +133,9 @@ class ReviewSessionController extends Controller
             'expires_at' => now()->addHours(2),
         ]);
 
+        // Store session ID in user's Laravel session
+        session([$sessionKey => $session->id]);
+
         return response()->json([
             'session_token' => $sessionToken,
             'business' => [
@@ -102,23 +154,25 @@ class ReviewSessionController extends Controller
     public function submitFeedback(SubmitFeedbackRequest $request, string $token)
     {
         $session = ReviewSession::where('session_token', $token)
-            ->where('status', 'started')
+            ->whereIn('status', ['started', 'completed'])
             ->where('expires_at', '>', now())
             ->firstOrFail();
 
         $validated = $request->validated();
 
-        $feedback = Feedback::create([
-            'review_session_id' => $session->id,
-            'business_id' => $session->business_id,
-            'branch_id' => $session->branch_id,
-            'qr_code_id' => $session->qr_code_id,
-            'rating' => $validated['rating'],
-            'comment' => $validated['comment'] ?? null,
-            'language' => $validated['language'] ?? 'en',
-            'status' => 'pending',
-            'submitted_at' => now(),
-        ]);
+        $feedback = Feedback::updateOrCreate(
+            ['review_session_id' => $session->id],
+            [
+                'business_id' => $session->business_id,
+                'branch_id' => $session->branch_id,
+                'qr_code_id' => $session->qr_code_id,
+                'rating' => $validated['rating'],
+                'comment' => $validated['comment'] ?? null,
+                'language' => $validated['language'] ?? 'en',
+                'status' => 'pending',
+                'submitted_at' => now(),
+            ]
+        );
 
         $session->update([
             'status' => 'completed',
