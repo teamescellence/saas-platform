@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { MOCK_TEAM } from "@/lib/mock-data";
 import { Button } from "@repo/ui/components/ui/button";
 import { Input } from "@repo/ui/components/ui/input";
 import { Label } from "@repo/ui/components/ui/label";
@@ -18,14 +17,27 @@ import {
   DropdownMenuTrigger,
 } from "@repo/ui/components/ui/dropdown-menu";
 import { toast } from "sonner";
-import { Plus, Users, UserPlus, MoreVertical, Shield, Trash2, Mail, ShieldAlert } from "lucide-react";
+import { Users, UserPlus, MoreVertical, Shield, Trash2, Mail, Loader2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { BusinessAvatar } from "@/components/ui/business-avatar";
-import type { TeamMember } from "@/lib/types";
+import { useQuery } from "@tanstack/react-query";
+import { api, endpoints } from "@/lib/api";
 
 export default function TeamPage() {
-  const [team, setTeam] = React.useState<TeamMember[]>(MOCK_TEAM);
+  const { data: dbTeam = [], isLoading } = useQuery<any[]>({
+    queryKey: ["team"],
+    queryFn: () => api.get<any[]>(endpoints.team),
+  });
+
+  const [team, setTeam] = React.useState<any[]>([]);
   const [inviteOpen, setInviteOpen] = React.useState(false);
+
+  // Sync team state when query completes
+  React.useEffect(() => {
+    if (dbTeam.length > 0) {
+      setTeam(dbTeam);
+    }
+  }, [dbTeam]);
 
   // Invite states
   const [email, setEmail] = React.useState("");
@@ -35,20 +47,17 @@ export default function TeamPage() {
     e.preventDefault();
     if (!email.trim()) return;
 
-    const newMember: TeamMember = {
+    const newMember = {
       id: `tm_${Date.now()}`,
-      user_id: `usr_${Date.now()}`,
-      organization_id: "org_1",
       user: {
         id: `usr_${Date.now()}`,
         name: email.split("@")[0],
         email,
         role: role === "owner" ? "owner" : role === "manager" ? "manager" : "staff",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
       },
       role,
       status: "invited",
+      joined_at: new Date().toISOString(),
     };
 
     setTeam((prev) => [...prev, newMember]);
@@ -70,6 +79,14 @@ export default function TeamPage() {
     toast.success("Role updated successfully!");
   };
 
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="size-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -87,7 +104,7 @@ export default function TeamPage() {
           <CardTitle className="text-base font-bold flex items-center gap-1.5">
             <Users className="size-4.5 text-primary" /> Active Team Members
           </CardTitle>
-          <CardDescription>Configure user roles and manage access dashboard control</CardDescription>
+          <CardDescription>Configure user roles and manage dashboard control</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -98,7 +115,7 @@ export default function TeamPage() {
                   <TableHead>Email</TableHead>
                   <TableHead>Role</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Last Active</TableHead>
+                  <TableHead>Joined</TableHead>
                   <TableHead className="w-[80px]"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -106,10 +123,10 @@ export default function TeamPage() {
                 {team.map((member) => (
                   <TableRow key={member.id}>
                     <TableCell className="font-semibold flex items-center gap-2.5">
-                      <BusinessAvatar name={member.user.name} size="sm" />
-                      <span>{member.user.name}</span>
+                      <BusinessAvatar name={member.user?.name || "Member"} size="sm" />
+                      <span>{member.user?.name || "Team Member"}</span>
                     </TableCell>
-                    <TableCell className="text-sm font-medium">{member.user.email}</TableCell>
+                    <TableCell className="text-sm font-medium">{member.user?.email || "—"}</TableCell>
                     <TableCell className="text-xs font-semibold capitalize flex items-center gap-1 py-4">
                       <Shield className="size-3.5 text-primary" />
                       {member.role}
@@ -128,9 +145,9 @@ export default function TeamPage() {
                       </span>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
-                      {member.last_active_at
-                        ? formatDistanceToNow(new Date(member.last_active_at), { addSuffix: true })
-                        : "Never"}
+                      {member.joined_at
+                        ? formatDistanceToNow(new Date(member.joined_at), { addSuffix: true })
+                        : "Active"}
                     </TableCell>
                     <TableCell>
                       {member.role !== "owner" && (
@@ -150,7 +167,7 @@ export default function TeamPage() {
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               className="text-destructive focus:bg-destructive/10"
-                              onClick={() => handleRemove(member.id, member.user.name)}
+                              onClick={() => handleRemove(member.id, member.user?.name)}
                             >
                               <Trash2 className="size-3.5 mr-2" /> Remove Member
                             </DropdownMenuItem>
@@ -186,7 +203,7 @@ export default function TeamPage() {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="e.g. employee@brewbliss.in"
+                    placeholder="e.g. employee@business.in"
                     className="pl-9"
                     required
                   />

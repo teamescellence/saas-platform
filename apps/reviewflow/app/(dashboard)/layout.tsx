@@ -3,9 +3,9 @@
 import { SidebarProvider, SidebarInset } from "@repo/ui/components/ui/sidebar";
 import { AppSidebar } from "@repo/ui/components/app-sidebar";
 import { Topbar } from "@/components/layout/topbar";
-import { MOCK_CURRENT_USER, MOCK_BRANCHES } from "@/lib/mock-data";
 import { useQuery } from "@tanstack/react-query";
 import { api, endpoints } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import {
   LayoutDashboard,
   Star,
@@ -31,9 +31,18 @@ const NAV_ITEMS = [
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const { user, logout } = useAuth();
+
+  const { data: business } = useQuery<any>({
+    queryKey: ["business"],
+    queryFn: () => api.get<any>(endpoints.business),
+    enabled: !!user,
+  });
+
   const { data: dbBranches = [] } = useQuery<any[]>({
     queryKey: ["branches"],
     queryFn: () => api.get<any[]>(endpoints.branches),
+    enabled: !!user,
   });
 
   const branches = dbBranches.length > 0
@@ -42,24 +51,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         logo: Building2,
         plan: b.is_active ? "Active Branch" : "Inactive",
       }))
-    : MOCK_BRANCHES.map((b) => ({
-        name: b.name,
-        logo: Building2,
-        plan: "Active Branch",
-      }));
-
+    : [
+        {
+          name: business?.name ? `${business.name} (Main)` : "Main Location",
+          logo: Building2,
+          plan: "Active Branch",
+        },
+      ];
 
   return (
     <SidebarProvider>
       <AppSidebar
         user={{
-          name: MOCK_CURRENT_USER.name,
-          email: MOCK_CURRENT_USER.email,
+          name: user?.name || "Account Owner",
+          email: user?.email || "owner@business.in",
         }}
         teams={branches}
         navMain={NAV_ITEMS}
-        title="ReviewFlow"
+        title={business?.name || "ReviewFlow"}
         subtitle="Owner Portal"
+        onLogout={logout}
       />
       <SidebarInset className="flex flex-col flex-1 min-w-0">
         <Topbar />

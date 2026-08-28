@@ -6,17 +6,20 @@ use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Admin\BusinessController as AdminBusinessController;
 use App\Http\Controllers\Business\QrCodeController;
 use App\Http\Controllers\Business\DashboardController;
+use App\Http\Controllers\Business\OnboardingController;
 use App\Http\Controllers\Public\ReviewSessionController;
 
 Route::prefix('v1')->group(function () {
     // Auth Routes
+    Route::post('/auth/register', [AuthController::class, 'register']);
     Route::post('/auth/login', [AuthController::class, 'login']);
 
-    // Public Review Flow
+    // Public Review Flow & Metadata
     Route::prefix('public')->middleware(\Illuminate\Session\Middleware\StartSession::class)->group(function () {
         Route::get('/review/{token}', [ReviewSessionController::class, 'show']);
         Route::post('/review/{token}/feedback', [ReviewSessionController::class, 'submitFeedback']);
         Route::post('/review/{token}/generate', [ReviewSessionController::class, 'generateDraft']);
+        Route::get('/onboarding/metadata', [OnboardingController::class, 'metadata']);
     });
 
     // Dashboard Actions (Requires Authentication)
@@ -37,18 +40,19 @@ Route::prefix('v1')->group(function () {
         Route::get('/qr-codes', [DashboardController::class, 'qrCodes']);
         Route::get('/team', [DashboardController::class, 'team']);
         Route::get('/business', [DashboardController::class, 'businessInfo']);
+        Route::match(['put', 'patch'], '/business', [DashboardController::class, 'updateBusiness']);
         Route::get('/subscription', [DashboardController::class, 'subscription']);
         Route::get('/branches', [DashboardController::class, 'branches']);
 
+        // Tenant Operations & Onboarding
+        Route::prefix('business')->group(function () {
+            Route::post('/onboarding', [OnboardingController::class, 'setup']);
+            Route::post('/qr-codes', [QrCodeController::class, 'store']);
+        });
 
         // Admin Operations
         Route::prefix('admin')->group(function () {
             Route::post('/businesses', [AdminBusinessController::class, 'store']);
-        });
-
-        // Tenant Operations
-        Route::prefix('business')->group(function () {
-            Route::post('/qr-codes', [QrCodeController::class, 'store']);
         });
     });
 });

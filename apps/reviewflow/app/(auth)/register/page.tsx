@@ -2,40 +2,59 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { Button } from "@repo/ui/components/ui/button";
 import { Input } from "@repo/ui/components/ui/input";
 import { Label } from "@repo/ui/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@repo/ui/components/ui/card";
-import { toast } from "sonner";
-import { Lock, Mail, User, Building, Phone, Loader2 } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
+import { Lock, Mail, User, Building, Phone, Loader2, ArrowRight } from "lucide-react";
+
+const registerSchema = z
+  .object({
+    name: z.string().min(2, "Name must be at least 2 characters"),
+    businessName: z.string().min(2, "Business name must be at least 2 characters"),
+    email: z.string().email("Please enter a valid email address"),
+    phone: z.string().min(7, "Please enter a valid phone number"),
+    password: z.string().min(6, "Password must be at least 6 characters"),
+    confirmPassword: z.string().min(6, "Confirm password is required"),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  });
+
+type RegisterFormValues = z.infer<typeof registerSchema>;
 
 export default function RegisterPage() {
-  const router = useRouter();
-  const [isLoading, setIsLoading] = React.useState(false);
-  const [name, setName] = React.useState("");
-  const [businessName, setBusinessName] = React.useState("");
-  const [email, setEmail] = React.useState("");
-  const [phone, setPhone] = React.useState("");
-  const [password, setPassword] = React.useState("");
-  const [confirmPassword, setConfirmPassword] = React.useState("");
+  const { register: registerUser } = useAuth();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (password !== confirmPassword) {
-      toast.error("Passwords do not match");
-      return;
-    }
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<RegisterFormValues>({
+    resolver: zodResolver(registerSchema),
+    defaultValues: {
+      name: "",
+      businessName: "",
+      email: "",
+      phone: "",
+      password: "",
+      confirmPassword: "",
+    },
+  });
 
-    setIsLoading(true);
-
-    // Simulate signup request
-    setTimeout(() => {
-      setIsLoading(false);
-      toast.success("Account created! Let's set up your business details.");
-      // Redirect to onboarding flow
-      router.push("/onboarding");
-    }, 1000);
+  const onSubmit = async (values: RegisterFormValues) => {
+    await registerUser({
+      name: values.name,
+      business_name: values.businessName,
+      email: values.email,
+      phone: values.phone,
+      password: values.password,
+    });
   };
 
   return (
@@ -46,8 +65,9 @@ export default function RegisterPage() {
           Get started with ReviewFlow for your business
         </CardDescription>
       </CardHeader>
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit(onSubmit)} noValidate>
         <CardContent className="space-y-3.5">
+          {/* Owner Name */}
           <div className="space-y-1.5">
             <Label htmlFor="name">Owner Name</Label>
             <div className="relative">
@@ -55,13 +75,16 @@ export default function RegisterPage() {
               <Input
                 id="name"
                 placeholder="Rahul Sharma"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="pl-9"
-                required
+                className={`pl-9 ${errors.name ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                {...register("name")}
               />
             </div>
+            {errors.name && (
+              <p className="text-xs text-destructive font-medium">{errors.name.message}</p>
+            )}
           </div>
+
+          {/* Business Name */}
           <div className="space-y-1.5">
             <Label htmlFor="businessName">Business Name</Label>
             <div className="relative">
@@ -69,13 +92,16 @@ export default function RegisterPage() {
               <Input
                 id="businessName"
                 placeholder="Brew & Bliss Cafe"
-                value={businessName}
-                onChange={(e) => setBusinessName(e.target.value)}
-                className="pl-9"
-                required
+                className={`pl-9 ${errors.businessName ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                {...register("businessName")}
               />
             </div>
+            {errors.businessName && (
+              <p className="text-xs text-destructive font-medium">{errors.businessName.message}</p>
+            )}
           </div>
+
+          {/* Email */}
           <div className="space-y-1.5">
             <Label htmlFor="email">Email</Label>
             <div className="relative">
@@ -84,13 +110,16 @@ export default function RegisterPage() {
                 id="email"
                 type="email"
                 placeholder="rahul@brewbliss.in"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="pl-9"
-                required
+                className={`pl-9 ${errors.email ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                {...register("email")}
               />
             </div>
+            {errors.email && (
+              <p className="text-xs text-destructive font-medium">{errors.email.message}</p>
+            )}
           </div>
+
+          {/* Phone */}
           <div className="space-y-1.5">
             <Label htmlFor="phone">Phone Number</Label>
             <div className="relative">
@@ -99,13 +128,16 @@ export default function RegisterPage() {
                 id="phone"
                 type="tel"
                 placeholder="+91 98290 12345"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="pl-9"
-                required
+                className={`pl-9 ${errors.phone ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                {...register("phone")}
               />
             </div>
+            {errors.phone && (
+              <p className="text-xs text-destructive font-medium">{errors.phone.message}</p>
+            )}
           </div>
+
+          {/* Passwords */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="password">Password</Label>
@@ -114,12 +146,14 @@ export default function RegisterPage() {
                 <Input
                   id="password"
                   type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="pl-9"
-                  required
+                  placeholder="••••••••"
+                  className={`pl-9 ${errors.password ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                  {...register("password")}
                 />
               </div>
+              {errors.password && (
+                <p className="text-xs text-destructive font-medium">{errors.password.message}</p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="confirmPassword">Confirm Password</Label>
@@ -128,24 +162,28 @@ export default function RegisterPage() {
                 <Input
                   id="confirmPassword"
                   type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="pl-9"
-                  required
+                  placeholder="••••••••"
+                  className={`pl-9 ${errors.confirmPassword ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                  {...register("confirmPassword")}
                 />
               </div>
+              {errors.confirmPassword && (
+                <p className="text-xs text-destructive font-medium">{errors.confirmPassword.message}</p>
+              )}
             </div>
           </div>
         </CardContent>
         <CardFooter className="flex flex-col space-y-4 pt-2">
-          <Button type="submit" className="w-full h-10" disabled={isLoading}>
-            {isLoading ? (
+          <Button type="submit" className="w-full h-10" disabled={isSubmitting}>
+            {isSubmitting ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Creating account...
               </>
             ) : (
-              "Register"
+              <>
+                Register & Continue to Setup <ArrowRight className="ml-2 size-4" />
+              </>
             )}
           </Button>
           <div className="text-center text-xs text-muted-foreground">

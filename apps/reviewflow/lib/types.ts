@@ -169,7 +169,10 @@ export type FeedbackStatus =
   | "feedback_received"
   | "draft_generated"
   | "draft_approved"
-  | "google_opened";
+  | "google_opened"
+  | "pending"
+  | "approved"
+  | "resolved";
 
 export interface ReviewDraft {
   id: string;

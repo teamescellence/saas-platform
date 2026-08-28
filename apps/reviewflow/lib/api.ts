@@ -1,16 +1,24 @@
 import type { ApiResponse, PaginatedResponse, ApiError } from "./types";
 
 const getApiBaseUrl = () => {
-  const defaultUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.reviewflow.in/api/v1";
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+
   if (typeof window !== "undefined") {
     const hostname = window.location.hostname;
     const protocol = window.location.protocol;
-    // Dynamically point to the laptop's backend when testing via local network IP (e.g. 10.24.149.171)
-    if (hostname !== "localhost" && hostname !== "127.0.0.1" && !hostname.endsWith(".reviewflow.in") && !hostname.endsWith(".test")) {
+
+    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".test")) {
+      return "http://api.test/api/v1";
+    }
+
+    if (!hostname.endsWith(".reviewflow.in")) {
       return `${protocol}//${hostname}:8000/api/v1`;
     }
   }
-  return defaultUrl;
+
+  return "https://api.reviewflow.in/api/v1";
 };
 
 const API_BASE_URL = getApiBaseUrl();
@@ -179,6 +187,8 @@ export const endpoints = {
   business: "/business",
   businessUpdate: "/business",
   branches: "/branches",
+  onboarding: "/business/onboarding",
+  onboardingMetadata: "/public/onboarding/metadata",
 
 
   // Subscription

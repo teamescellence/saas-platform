@@ -2,29 +2,51 @@
 
 import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
-import { MOCK_QR_CODES, MOCK_BUSINESS } from "@/lib/mock-data";
 import { Button } from "@repo/ui/components/ui/button";
 import { Input } from "@repo/ui/components/ui/input";
 import { Label } from "@repo/ui/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@repo/ui/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/components/ui/tabs";
 import { toast } from "sonner";
-import { ArrowLeft, Download, Printer, Palette, Type, Sliders, Sparkles, Coffee } from "lucide-react";
+import { ArrowLeft, Download, Printer, Palette, Type, Sliders, Sparkles, Building2, Loader2 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
+import { useQuery } from "@tanstack/react-query";
+import { api, endpoints } from "@/lib/api";
 
 export default function QrBrandKitPage() {
   const params = useParams();
   const router = useRouter();
   const qrId = params.id as string;
-  const qrCode = MOCK_QR_CODES.find((q) => q.id === qrId) || MOCK_QR_CODES[0];
+
+  const { data: business } = useQuery<any>({
+    queryKey: ["business"],
+    queryFn: () => api.get<any>(endpoints.business),
+  });
+
+  const { data: qrCodes = [], isLoading } = useQuery<any[]>({
+    queryKey: ["qrCodes"],
+    queryFn: () => api.get<any[]>(endpoints.qrCodes),
+  });
+
+  const qrCode = qrCodes.find((q) => String(q.id) === String(qrId)) || qrCodes[0] || {
+    id: qrId,
+    name: "Location QR",
+    url: `reviewflow.in/q/${qrId}`,
+  };
 
   // Customization State
-  const [bizName, setBizName] = React.useState(MOCK_BUSINESS.name);
+  const [bizName, setBizName] = React.useState("");
   const [customMsg, setCustomMsg] = React.useState("Enjoyed your experience? Scan to share your feedback.");
   const [bgColor, setBgColor] = React.useState("#FAF6F0"); // Warm premium cream
   const [textColor, setTextColor] = React.useState("#3A2A1A"); // Dark warm brown
   const [qrSize, setQrSize] = React.useState(180);
   const [activeTab, setActiveTab] = React.useState("table_card");
+
+  React.useEffect(() => {
+    if (business?.name && !bizName) {
+      setBizName(business.name);
+    }
+  }, [business, bizName]);
 
   const handlePrint = () => {
     window.print();
@@ -33,6 +55,16 @@ export default function QrBrandKitPage() {
   const handleDownload = () => {
     toast.success("Downloading printable kit package as PDF...");
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="size-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  const fullQrUrl = qrCode.url?.startsWith("http") ? qrCode.url : `https://${qrCode.url}`;
 
   return (
     <div className="space-y-6">
@@ -161,13 +193,13 @@ export default function QrBrandKitPage() {
                 >
                   <div className="flex flex-col items-center gap-2 mt-2">
                     <div className="size-10 rounded-xl bg-white/80 backdrop-blur shadow-sm flex items-center justify-center border border-black/5">
-                      <Coffee className="size-5 text-primary" />
+                      <Building2 className="size-5 text-primary" />
                     </div>
-                    <h3 className="font-bold text-lg tracking-tight">{bizName}</h3>
+                    <h3 className="font-bold text-lg tracking-tight">{bizName || "ReviewFlow"}</h3>
                   </div>
 
                   <div className="p-3.5 bg-white rounded-xl shadow-md border border-black/5">
-                    <QRCodeSVG value={`https://${qrCode.url}`} size={qrSize} level="H" />
+                    <QRCodeSVG value={fullQrUrl} size={qrSize} level="H" />
                   </div>
 
                   <div className="space-y-1 mb-2">
@@ -188,11 +220,11 @@ export default function QrBrandKitPage() {
                     <span className="text-[10px] font-bold uppercase tracking-widest bg-primary/10 text-primary px-2.5 py-0.5 rounded-full">
                       Review Us On Google
                     </span>
-                    <h3 className="font-extrabold text-xl tracking-tight mt-1">{bizName}</h3>
+                    <h3 className="font-extrabold text-xl tracking-tight mt-1">{bizName || "ReviewFlow"}</h3>
                   </div>
 
                   <div className="p-4 bg-white rounded-xl shadow-lg border border-black/5">
-                    <QRCodeSVG value={`https://${qrCode.url}`} size={qrSize} level="H" />
+                    <QRCodeSVG value={fullQrUrl} size={qrSize} level="H" />
                   </div>
 
                   <div className="space-y-1.5 mb-2">
@@ -213,9 +245,9 @@ export default function QrBrandKitPage() {
                   <div className="absolute inset-2 border-2 border-dashed rounded-full opacity-20 pointer-events-none" style={{ borderColor: textColor }} />
 
                   <div className="flex flex-col items-center gap-3 z-10">
-                    <h3 className="font-extrabold text-sm tracking-tight">{bizName}</h3>
+                    <h3 className="font-extrabold text-sm tracking-tight">{bizName || "ReviewFlow"}</h3>
                     <div className="p-3 bg-white rounded-xl shadow-md border border-black/5">
-                      <QRCodeSVG value={`https://${qrCode.url}`} size={qrSize - 20} level="H" />
+                      <QRCodeSVG value={fullQrUrl} size={qrSize - 20} level="H" />
                     </div>
                     <p className="font-bold text-[9px] uppercase tracking-wider opacity-75 max-w-[150px]">
                       Scan to share feedback
@@ -233,17 +265,17 @@ export default function QrBrandKitPage() {
                 >
                   <div className="flex flex-col justify-between h-full flex-1">
                     <div>
-                      <h3 className="font-extrabold text-lg tracking-tight">{bizName}</h3>
+                      <h3 className="font-extrabold text-lg tracking-tight">{bizName || "ReviewFlow"}</h3>
                       <p className="text-xs opacity-75 mt-1 leading-relaxed">{customMsg}</p>
                     </div>
                     <div className="space-y-0.5">
                       <p className="text-[10px] font-bold uppercase tracking-wider opacity-60">Follow us on social</p>
-                      <p className="text-[10px] font-semibold opacity-75">reviewflow.in/{MOCK_BUSINESS.slug}</p>
+                      <p className="text-[10px] font-semibold opacity-75">reviewflow.in/{business?.slug || "business"}</p>
                     </div>
                   </div>
 
                   <div className="p-3 bg-white rounded-xl shadow-md border border-black/5 shrink-0">
-                    <QRCodeSVG value={`https://${qrCode.url}`} size={qrSize - 40} level="H" />
+                    <QRCodeSVG value={fullQrUrl} size={qrSize - 40} level="H" />
                   </div>
                 </div>
               )}

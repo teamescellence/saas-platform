@@ -4,7 +4,6 @@ import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, endpoints } from "@/lib/api";
 import type { Feedback } from "@/lib/types";
-import { MOCK_FEEDBACK, MOCK_BRANCHES } from "@/lib/mock-data";
 import { RatingStars } from "@/components/ui/rating-stars";
 import { SentimentBadge } from "@/components/ui/sentiment-badge";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -25,12 +24,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import {
   Search,
-  Filter,
   MoreVertical,
   Copy,
-  ExternalLink,
-  RefreshCw,
   Sparkles,
+  Loader2,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -40,7 +37,7 @@ export default function ReviewsPage() {
   const [branchFilter, setBranchFilter] = React.useState("all");
   const [activeTab, setActiveTab] = React.useState("all");
 
-  const { data: serverFeedbacks = MOCK_FEEDBACK, isLoading } = useQuery<Feedback[]>({
+  const { data: serverFeedbacks = [], isLoading } = useQuery<Feedback[]>({
     queryKey: ["dashboardRecentFeedback"],
     queryFn: () => api.get<Feedback[]>(endpoints.dashboardRecentFeedback),
   });
@@ -50,9 +47,8 @@ export default function ReviewsPage() {
     queryFn: () => api.get<any[]>(endpoints.branches),
   });
 
-  const branches = dbBranches.length > 0 ? dbBranches : MOCK_BRANCHES;
-
-  const [feedbacks, setFeedbacks] = React.useState<Feedback[]>(MOCK_FEEDBACK);
+  const branches = dbBranches;
+  const [feedbacks, setFeedbacks] = React.useState<Feedback[]>([]);
 
   React.useEffect(() => {
     if (serverFeedbacks) {
@@ -65,83 +61,64 @@ export default function ReviewsPage() {
     toast.success("Review text copied to clipboard!");
   };
 
-  const handleOpenGoogle = (url: string) => {
-    window.open(url, "_blank", "noopener,noreferrer");
-    toast.info("Opening Google Review Page...");
-  };
-
-  const handleGenerateDraft = (id: string) => {
-    setFeedbacks((prev) =>
-      prev.map((fb) => {
-        if (fb.id === id) {
-          return {
-            ...fb,
-            status: "draft_generated" as const,
-            review_draft: {
-              id: `rd_${Date.now()}`,
-              feedback_id: id,
-              original_text: fb.text,
-              ai_draft: `I visited Brew & Bliss and loved it! The ${fb.topics.join(" and ").toLowerCase() || "experience"} was outstanding. Recommend to everyone.`,
-              is_edited: false,
-              status: "generated" as const,
-              created_at: new Date().toISOString(),
-            },
-          };
-        }
-        return fb;
-      })
-    );
-    toast.success("AI review draft generated!");
-  };
-
   const filteredFeedbacks = feedbacks.filter((fb) => {
-    // Tab sentiment filter
-    if (activeTab !== "all" && fb.sentiment !== activeTab) return false;
-
-    // Search term
+    // Search
     if (
       searchTerm &&
-      !fb.text.toLowerCase().includes(searchTerm.toLowerCase()) &&
-      !fb.topics.some((t) => t.toLowerCase().includes(searchTerm.toLowerCase()))
+      !fb.text?.toLowerCase().includes(searchTerm.toLowerCase()) &&
+      !fb.review_draft?.ai_draft?.toLowerCase().includes(searchTerm.toLowerCase())
     ) {
       return false;
     }
 
-    // Rating filter
+    // Rating
     if (ratingFilter !== "all" && fb.rating.toString() !== ratingFilter) return false;
 
-    // Branch filter
-    if (branchFilter !== "all" && String(fb.branch_id) !== branchFilter) return false;
+    // Branch
+    if (branchFilter !== "all" && fb.branch_id !== branchFilter) return false;
 
+    // Tabs
+    if (activeTab === "ai_generated" && !fb.review_draft) return false;
+    if (activeTab === "pending" && fb.status !== "pending") return false;
 
     return true;
   });
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Reviews</h1>
-          <p className="text-sm text-muted-foreground">View and manage customer review actions and drafts.</p>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Reviews Hub</h1>
+        <p className="text-sm text-muted-foreground">Monitor generated AI review drafts and customer feedback.</p>
       </div>
 
-      <Card className="border-border/50">
-        <CardHeader className="pb-3 border-b border-border/50">
-          <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-            {/* Search and Filters */}
-            <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto flex-1">
-              <div className="relative flex-1 max-w-sm">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search reviews..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9 h-9"
-                />
-              </div>
+      <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <div className="flex flex-col sm:flex-row justify-between gap-4">
+          <TabsList className="bg-card border border-border">
+            <TabsTrigger value="all">All Reviews ({feedbacks.length})</TabsTrigger>
+            <TabsTrigger value="ai_generated">
+              AI Drafted ({feedbacks.filter((f) => f.review_draft).length})
+            </TabsTrigger>
+            <TabsTrigger value="pending">
+              Pending ({feedbacks.filter((f) => f.status === "pending").length})
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        {/* Filter Toolbar */}
+        <Card className="border-border/50">
+          <CardContent className="p-4 flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Input
+                placeholder="Search reviews by keywords or customer input..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-9 bg-background"
+              />
+            </div>
+            <div className="flex gap-2">
               <Select value={ratingFilter} onValueChange={setRatingFilter}>
-                <SelectTrigger className="h-9 w-[130px]">
+                <SelectTrigger className="w-[130px] bg-background">
                   <SelectValue placeholder="Rating" />
                 </SelectTrigger>
                 <SelectContent>
@@ -153,115 +130,115 @@ export default function ReviewsPage() {
                   <SelectItem value="1">1 Star</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={branchFilter} onValueChange={setBranchFilter}>
-                <SelectTrigger className="h-9 w-[150px]">
-                  <SelectValue placeholder="Branch" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Branches</SelectItem>
-                  {branches.map((br) => (
-                    <SelectItem key={String(br.id)} value={String(br.id)}>
-                      {br.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
 
+              {branches.length > 0 && (
+                <Select value={branchFilter} onValueChange={setBranchFilter}>
+                  <SelectTrigger className="w-[140px] bg-background">
+                    <SelectValue placeholder="Branch" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Branches</SelectItem>
+                    {branches.map((b) => (
+                      <SelectItem key={b.id} value={b.id.toString()}>
+                        {b.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
+          </CardContent>
+        </Card>
 
-            {/* Tab selector */}
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full md:w-auto">
-              <TabsList className="grid grid-cols-4 h-9">
-                <TabsTrigger value="all" className="text-xs">All</TabsTrigger>
-                <TabsTrigger value="positive" className="text-xs">Positive</TabsTrigger>
-                <TabsTrigger value="neutral" className="text-xs">Neutral</TabsTrigger>
-                <TabsTrigger value="negative" className="text-xs">Negative</TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[120px]">Rating</TableHead>
-                  <TableHead className="w-[300px]">Feedback</TableHead>
-                  <TableHead className="w-[300px]">AI Draft</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead className="w-[80px]"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredFeedbacks.length > 0 ? (
-                  filteredFeedbacks.map((fb) => (
-                    <TableRow key={fb.id}>
-                      <TableCell>
-                        <div className="flex flex-col gap-1">
-                          <RatingStars rating={fb.rating} size="sm" />
-                          <SentimentBadge sentiment={fb.sentiment} />
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-sm font-medium leading-relaxed max-w-[300px]">
-                        <p className="line-clamp-3">{fb.text}</p>
-                      </TableCell>
-                      <TableCell className="text-sm italic leading-relaxed text-muted-foreground max-w-[300px]">
-                        {fb.review_draft ? (
-                          <p className="line-clamp-3">&quot;{fb.review_draft.ai_draft}&quot;</p>
-                        ) : (
-                          <span className="text-xs font-semibold text-muted-foreground/40 not-italic">No draft generated</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge status={fb.status} />
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {format(new Date(fb.created_at), "dd MMM yyyy, hh:mm a")}
-                      </TableCell>
-                      <TableCell className="text-xs font-semibold">
-                        {fb.qr_code?.name || "Scan"}
-                      </TableCell>
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger className="inline-flex shrink-0 items-center justify-center rounded-md text-xs font-medium transition-all outline-none select-none hover:bg-muted hover:text-foreground size-8">
-                            <MoreVertical className="size-4" />
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                            <DropdownMenuSeparator />
+        {/* Reviews Content */}
+        <TabsContent value={activeTab} className="mt-0">
+          <Card className="border-border/50">
+            <CardHeader className="p-4 pb-0">
+              <CardTitle className="text-base font-bold">Customer Review Stream</CardTitle>
+              <CardDescription>
+                Showing {filteredFeedbacks.length} verified submissions
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-0 pt-4">
+              {isLoading ? (
+                <div className="flex items-center justify-center min-h-[300px]">
+                  <Loader2 className="size-8 animate-spin text-primary" />
+                </div>
+              ) : filteredFeedbacks.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground text-sm">
+                  <p>No reviews found matching your selected criteria.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[100px]">Rating</TableHead>
+                        <TableHead>Customer Submission</TableHead>
+                        <TableHead>AI Drafted Text</TableHead>
+                        <TableHead className="w-[120px]">Sentiment</TableHead>
+                        <TableHead className="w-[120px]">Date</TableHead>
+                        <TableHead className="w-[50px]"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredFeedbacks.map((fb) => (
+                        <TableRow key={fb.id}>
+                          <TableCell>
+                            <RatingStars rating={fb.rating} size="sm" />
+                          </TableCell>
+                          <TableCell className="max-w-xs">
+                            <p className="text-sm text-foreground line-clamp-2">{fb.text || "—"}</p>
+                            <span className="text-[10px] text-muted-foreground font-mono">
+                              QR: {fb.qr_code?.name || "Main"}
+                            </span>
+                          </TableCell>
+                          <TableCell className="max-w-sm">
                             {fb.review_draft ? (
-                              <>
-                                <DropdownMenuItem onClick={() => handleCopyReview(fb.review_draft!.ai_draft)}>
-                                  <Copy className="size-3.5 mr-2" /> Copy AI Draft
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleOpenGoogle("https://search.google.com/local/writereview?placeid=ChIJTY-4QhBrrjsRIqHp8MDYbHs")}>
-                                  <ExternalLink className="size-3.5 mr-2" /> Open Google review
-                                </DropdownMenuItem>
-                              </>
+                              <div className="space-y-1">
+                                <p className="text-xs text-foreground bg-primary/5 p-2 rounded border border-primary/10 line-clamp-2">
+                                  {fb.review_draft.ai_draft}
+                                </p>
+                                <div className="flex items-center gap-1.5 text-[10px] text-primary font-semibold">
+                                  <Sparkles className="size-3" /> AI Generated
+                                </div>
+                              </div>
                             ) : (
-                              <DropdownMenuItem onClick={() => handleGenerateDraft(fb.id)}>
-                                <Sparkles className="size-3.5 mr-2 text-primary" /> Generate AI Draft
-                              </DropdownMenuItem>
+                              <span className="text-xs text-muted-foreground italic">No draft generated</span>
                             )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center">
-                      No reviews found.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
+                          </TableCell>
+                          <TableCell>
+                            <SentimentBadge sentiment={fb.sentiment} />
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground font-mono">
+                            {fb.created_at ? format(new Date(fb.created_at), "dd MMM yyyy") : "Recent"}
+                          </TableCell>
+                          <TableCell>
+                            {fb.review_draft && (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger className="inline-flex shrink-0 items-center justify-center rounded-md text-xs font-medium transition-all outline-none select-none hover:bg-muted hover:text-foreground size-8">
+                                  <MoreVertical className="size-4" />
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem onClick={() => handleCopyReview(fb.review_draft?.ai_draft || "")}>
+                                    <Copy className="size-3.5 mr-2" /> Copy AI Draft
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

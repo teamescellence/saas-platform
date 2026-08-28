@@ -5,7 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { api, endpoints } from "./api";
 import { toast } from "sonner";
 
-interface User {
+export interface User {
   id: number;
   name: string;
   email: string;
@@ -14,11 +14,20 @@ interface User {
   organization_slug: string | null;
 }
 
+export interface RegisterData {
+  name: string;
+  email: string;
+  password: string;
+  phone?: string;
+  business_name?: string;
+}
+
 interface AuthContextType {
   user: User | null;
   token: string | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  register: (data: RegisterData) => Promise<void>;
   logout: () => Promise<void>;
   hasRole: (role: string) => boolean;
   hasAnyRole: (roles: string[]) => boolean;
@@ -69,6 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (isLoading) return;
 
     const isAuthRoute = pathname.startsWith("/login") || pathname.startsWith("/register") || pathname.startsWith("/forgot-password") || pathname.startsWith("/reset-password");
+    const isOnboardingRoute = pathname.startsWith("/onboarding");
     const isAdminRoute = pathname.startsWith("/admin");
     const isDashboardRoute = pathname.startsWith("/dashboard");
     const isPublicReviewRoute = pathname.startsWith("/q");
@@ -79,12 +89,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (!user) {
-      // Guest users: restrict dashboard and admin access
-      if (isAdminRoute || isDashboardRoute) {
-        router.push("/login");
+      // Guest users: restrict dashboard, onboarding, and admin access
+      if (isAdminRoute || isDashboardRoute || isOnboardingRoute) {
+        router.push(isOnboardingRoute ? "/register" : "/login");
       }
     } else {
-      // Logged-in users: prevent access to auth routes
+      // Logged-in users: prevent access to login/register routes
       if (isAuthRoute) {
         if (user.roles.includes("super-admin")) {
           router.push("/admin");
@@ -133,6 +143,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const register = async (data: RegisterData) => {
+    setIsLoading(true);
+    try {
+      const res = await api.post<{ token: string; user: User; business: any }>(endpoints.register, data);
+      
+      localStorage.setItem("rf_token", res.token);
+      localStorage.setItem("rf_user", JSON.stringify(res.user));
+      
+      api.setToken(res.token);
+      setToken(res.token);
+      setUser(res.user);
+
+      toast.success("Account created successfully! Let's set up your business details.");
+      router.push("/onboarding");
+    } catch (err: any) {
+      const errorMsg = err.errors ? Object.values(err.errors).flat().join(" ") : (err.message || "Registration failed. Please try again.");
+      toast.error(errorMsg);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const logout = async () => {
     setIsLoading(true);
     try {
@@ -166,6 +199,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         token,
         isLoading,
         login,
+        register,
         logout,
         hasRole,
         hasAnyRole,

@@ -42,6 +42,7 @@ export interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   }[]
   title?: string
   subtitle?: string
+  onLogout?: () => void
 }
 
 export function AppSidebar({
@@ -51,6 +52,7 @@ export function AppSidebar({
   projects,
   title,
   subtitle,
+  onLogout,
   ...props
 }: AppSidebarProps) {
   return (
@@ -79,7 +81,7 @@ export function AppSidebar({
         {projects && projects.length > 0 && <NavProjects projects={projects} />}
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={user} />
+        <NavUser user={user} onLogout={onLogout} />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

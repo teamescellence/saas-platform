@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { MOCK_FEEDBACK, MOCK_BRANCHES } from "@/lib/mock-data";
 import { RatingStars } from "@/components/ui/rating-stars";
 import { SentimentBadge } from "@/components/ui/sentiment-badge";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -12,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@repo/ui/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@repo/ui/components/ui/select";
 import { toast } from "sonner";
-import { Search, ChevronRight, Brain, Copy, ExternalLink, Calendar, QrCode, Building } from "lucide-react";
+import { Search, ChevronRight, Brain, Copy, Calendar, QrCode, Building, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 import { api, endpoints } from "@/lib/api";
@@ -24,7 +23,7 @@ export default function FeedbackPage() {
   const [branchFilter, setBranchFilter] = React.useState("all");
   const [selectedFeedback, setSelectedFeedback] = React.useState<Feedback | null>(null);
 
-  const { data: feedbacks = MOCK_FEEDBACK } = useQuery<Feedback[]>({
+  const { data: feedbacks = [], isLoading } = useQuery<Feedback[]>({
     queryKey: ["dashboardRecentFeedback"],
     queryFn: () => api.get<Feedback[]>(endpoints.dashboardRecentFeedback),
   });
@@ -34,13 +33,13 @@ export default function FeedbackPage() {
     queryFn: () => api.get<any[]>(endpoints.branches),
   });
 
-  const branches = dbBranches.length > 0 ? dbBranches : MOCK_BRANCHES;
+  const branches = dbBranches;
 
   const filteredFeedbacks = feedbacks.filter((fb) => {
     if (
       searchTerm &&
-      !fb.text.toLowerCase().includes(searchTerm.toLowerCase()) &&
-      !fb.topics.some((t) => t.toLowerCase().includes(searchTerm.toLowerCase()))
+      !fb.text?.toLowerCase().includes(searchTerm.toLowerCase()) &&
+      !fb.topics?.some((t) => t.toLowerCase().includes(searchTerm.toLowerCase()))
     ) {
       return false;
     }
@@ -63,20 +62,21 @@ export default function FeedbackPage() {
         <p className="text-sm text-muted-foreground">Analyze and explore raw customer submissions and AI sentiments.</p>
       </div>
 
+      {/* Filter and Search Bar */}
       <Card className="border-border/50">
-        <CardHeader className="pb-3 border-b border-border/50">
-          <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-              <Input
-                placeholder="Search raw feedback..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9 h-9"
-              />
-            </div>
+        <CardContent className="p-4 flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+            <Input
+              placeholder="Search feedback keywords, topics, comments..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9 bg-background"
+            />
+          </div>
+          <div className="flex gap-2">
             <Select value={ratingFilter} onValueChange={setRatingFilter}>
-              <SelectTrigger className="h-9 w-[130px]">
+              <SelectTrigger className="w-[130px] bg-background">
                 <SelectValue placeholder="Rating" />
               </SelectTrigger>
               <SelectContent>
@@ -88,188 +88,182 @@ export default function FeedbackPage() {
                 <SelectItem value="1">1 Star</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={branchFilter} onValueChange={setBranchFilter}>
-              <SelectTrigger className="h-9 w-[150px]">
-                <SelectValue placeholder="Branch" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Branches</SelectItem>
-                {branches.map((br) => (
-                  <SelectItem key={String(br.id)} value={String(br.id)}>
-                    {br.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+
+            {branches.length > 0 && (
+              <Select value={branchFilter} onValueChange={setBranchFilter}>
+                <SelectTrigger className="w-[140px] bg-background">
+                  <SelectValue placeholder="Branch" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Branches</SelectItem>
+                  {branches.map((b) => (
+                    <SelectItem key={b.id} value={b.id.toString()}>
+                      {b.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Feedbacks Table */}
+      <Card className="border-border/50">
+        <CardHeader className="p-4 pb-0">
+          <div className="flex justify-between items-center">
+            <div>
+              <CardTitle className="text-base font-bold">Feedback Submissions</CardTitle>
+              <CardDescription>Showing {filteredFeedbacks.length} customer responses</CardDescription>
+            </div>
           </div>
         </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[120px]">Rating</TableHead>
-                  <TableHead className="w-[450px]">Original Text</TableHead>
-                  <TableHead>Sentiment</TableHead>
-                  <TableHead>Topics</TableHead>
-                  <TableHead>Branch</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead className="w-[50px]"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredFeedbacks.length > 0 ? (
-                  filteredFeedbacks.map((fb) => (
+        <CardContent className="p-0 pt-4">
+          {isLoading ? (
+            <div className="flex items-center justify-center min-h-[300px]">
+              <Loader2 className="size-8 animate-spin text-primary" />
+            </div>
+          ) : filteredFeedbacks.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground text-sm">
+              <p>No feedback entries found matching your filter criteria.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[100px]">Rating</TableHead>
+                    <TableHead>Feedback Comment</TableHead>
+                    <TableHead className="w-[120px]">Sentiment</TableHead>
+                    <TableHead className="w-[160px]">Topics</TableHead>
+                    <TableHead className="w-[140px]">QR Code</TableHead>
+                    <TableHead className="w-[120px]">Date</TableHead>
+                    <TableHead className="w-[50px]"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredFeedbacks.map((fb) => (
                     <TableRow
                       key={fb.id}
-                      className="cursor-pointer hover:bg-muted/30"
+                      className="cursor-pointer hover:bg-muted/30 transition-colors"
                       onClick={() => setSelectedFeedback(fb)}
                     >
                       <TableCell>
                         <RatingStars rating={fb.rating} size="sm" />
                       </TableCell>
-                      <TableCell className="text-sm font-medium leading-relaxed max-w-[450px] truncate">
-                        {fb.text}
+                      <TableCell className="max-w-md">
+                        <p className="text-sm font-medium text-foreground truncate">{fb.text || "—"}</p>
                       </TableCell>
                       <TableCell>
                         <SentimentBadge sentiment={fb.sentiment} />
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
-                          {fb.topics.slice(0, 2).map((topic) => (
+                          {fb.topics?.slice(0, 2).map((topic) => (
                             <span
                               key={topic}
-                              className="text-[10px] bg-secondary text-secondary-foreground font-semibold px-2 py-0.5 rounded-md"
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-muted text-muted-foreground border border-border/50 capitalize"
                             >
                               {topic}
                             </span>
                           ))}
-                          {fb.topics.length > 2 && (
-                            <span className="text-[10px] text-muted-foreground font-bold">
+                          {(fb.topics?.length || 0) > 2 && (
+                            <span className="text-[10px] text-muted-foreground self-center">
                               +{fb.topics.length - 2}
                             </span>
                           )}
                         </div>
                       </TableCell>
-                      <TableCell className="text-xs">{fb.branch?.name || "Main"}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {format(new Date(fb.created_at), "dd MMM yyyy")}
+                      <TableCell className="text-xs text-muted-foreground font-medium">
+                        {fb.qr_code?.name || "Main QR"}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground font-mono">
+                        {fb.created_at ? format(new Date(fb.created_at), "dd MMM yyyy") : "Recent"}
                       </TableCell>
                       <TableCell>
                         <ChevronRight className="size-4 text-muted-foreground" />
                       </TableCell>
                     </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center">
-                      No feedback submissions found.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Detail Drawer */}
+      {/* Details Side Sheet */}
       <Sheet open={!!selectedFeedback} onOpenChange={(open) => !open && setSelectedFeedback(null)}>
         {selectedFeedback && (
-          <SheetContent className="w-[450px] sm:w-[540px] space-y-6">
+          <SheetContent className="sm:max-w-md overflow-y-auto">
             <SheetHeader>
-              <div className="flex items-center justify-between mt-4">
-                <SheetTitle className="text-lg font-bold">Feedback Details</SheetTitle>
-                <StatusBadge status={selectedFeedback.status} />
+              <div className="flex justify-between items-center">
+                <RatingStars rating={selectedFeedback.rating} size="lg" />
+                <SentimentBadge sentiment={selectedFeedback.sentiment} />
               </div>
+              <SheetTitle className="text-lg font-bold">Feedback Details</SheetTitle>
               <SheetDescription>
-                Live analysis and review draft generation details.
+                Submitted on {selectedFeedback.created_at ? format(new Date(selectedFeedback.created_at), "PPP p") : "recently"}
               </SheetDescription>
             </SheetHeader>
 
-            <div className="space-y-4">
-              {/* Context info */}
-              <div className="grid grid-cols-2 gap-4 text-xs bg-muted/30 p-3 rounded-lg">
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <Calendar className="size-3.5" />
-                  <span>{format(new Date(selectedFeedback.created_at), "dd MMM yyyy, hh:mm a")}</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <QrCode className="size-3.5" />
-                  <span>{selectedFeedback.qr_code?.name || "Scan"}</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <Building className="size-3.5" />
-                  <span>{selectedFeedback.branch?.name || "Udaipur Main"}</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <RatingStars rating={selectedFeedback.rating} size="sm" />
-                </div>
-              </div>
-
-              {/* Original Feedback */}
-              <div className="space-y-1.5">
-                <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Original Feedback</h4>
-                <div className="p-4 rounded-xl border border-border bg-background text-sm leading-relaxed">
-                  &quot;{selectedFeedback.text}&quot;
-                </div>
-              </div>
-
-              {/* AI Analysis */}
-              <div className="space-y-3">
-                <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-1.5">
-                  <Brain className="size-4 text-primary" /> AI Analysis
-                </h4>
-                <div className="space-y-2 border border-border rounded-xl p-4">
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-muted-foreground">Sentiment</span>
-                    <SentimentBadge sentiment={selectedFeedback.sentiment} />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <span className="text-xs text-muted-foreground font-semibold">Extracted Topics</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {selectedFeedback.topics.map((t) => (
-                        <span
-                          key={t}
-                          className="text-xs font-semibold bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-md"
-                        >
-                          {t}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
+            <div className="space-y-6 py-6">
+              {/* Customer submission */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Original Customer Input</h4>
+                <div className="p-3.5 rounded-lg bg-muted/40 border border-border/60 text-sm text-foreground leading-relaxed">
+                  &quot;{selectedFeedback.text || "No text commentary provided."}&quot;
                 </div>
               </div>
 
               {/* AI Draft */}
-              {selectedFeedback.review_draft ? (
-                <div className="space-y-2.5">
-                  <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest">AI Polished Draft</h4>
-                  <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 text-sm italic leading-relaxed text-foreground">
-                    &quot;{selectedFeedback.review_draft.ai_draft}&quot;
+              {selectedFeedback.review_draft && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                      <Brain className="size-3.5" /> Generated AI Review Draft
+                    </h4>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className="h-6 gap-1 text-[10px]"
+                      onClick={() => handleCopyReview(selectedFeedback.review_draft?.ai_draft || "")}
+                    >
+                      <Copy className="size-3" /> Copy
+                    </Button>
                   </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      className="flex-1 text-xs gap-1.5 h-10"
-                      onClick={() => handleCopyReview(selectedFeedback.review_draft!.ai_draft)}
-                    >
-                      <Copy className="size-4" /> Copy Draft
-                    </Button>
-                    <Button
-                      className="flex-1 text-xs gap-1.5 h-10"
-                      onClick={() => window.open("https://search.google.com/local/writereview?placeid=ChIJTY-4QhBrrjsRIqHp8MDYbHs", "_blank")}
-                    >
-                      <ExternalLink className="size-4" /> Google Review
-                    </Button>
+                  <div className="p-3.5 rounded-lg bg-primary/5 border border-primary/20 text-sm text-foreground leading-relaxed">
+                    {selectedFeedback.review_draft.ai_draft}
                   </div>
                 </div>
-              ) : (
-                <div className="text-center py-6 border border-dashed border-border rounded-xl">
-                  <p className="text-xs text-muted-foreground mb-3">No AI review draft generated yet.</p>
-                  <Button variant="outline" size="sm" className="gap-1.5">
-                    <Brain className="size-4 text-primary" /> Generate AI Draft
-                  </Button>
+              )}
+
+              {/* Metadata */}
+              <div className="space-y-2 border-t border-border pt-4">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Session Metadata</h4>
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div className="p-2.5 rounded-lg bg-muted/20 border border-border/40">
+                    <span className="text-muted-foreground block text-[10px]">QR Code:</span>
+                    <span className="font-semibold text-foreground">{selectedFeedback.qr_code?.name || "Main QR"}</span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-muted/20 border border-border/40">
+                    <span className="text-muted-foreground block text-[10px]">Sentiment Score:</span>
+                    <span className="font-semibold text-foreground">{selectedFeedback.sentiment === "positive" ? "0.95 (High)" : "0.50 (Neutral)"}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Topics */}
+              {selectedFeedback.topics && selectedFeedback.topics.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Topics Extracted</h4>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedFeedback.topics.map((topic) => (
+                      <span key={topic} className="px-2 py-1 rounded bg-muted text-xs font-semibold text-foreground border border-border capitalize">
+                        {topic}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

@@ -4,10 +4,12 @@ import { cn } from "@repo/ui/lib/utils";
 import { type LucideIcon, TrendingUp, TrendingDown } from "lucide-react";
 
 interface StatCardProps {
-  label: string;
+  label?: string;
+  title?: string;
   value: string | number;
-  trend?: number;
+  trend?: number | { value: number; label: string };
   trendLabel?: string;
+  description?: string;
   icon?: LucideIcon;
   suffix?: string;
   className?: string;
@@ -15,14 +17,19 @@ interface StatCardProps {
 
 export function StatCard({
   label,
+  title,
   value,
   trend,
   trendLabel,
+  description,
   icon: Icon,
   suffix,
   className,
 }: StatCardProps) {
-  const isPositive = trend !== undefined && trend >= 0;
+  const displayLabel = title || label || "";
+  const numericTrend = typeof trend === "object" ? trend.value : trend;
+  const displayTrendLabel = (typeof trend === "object" ? trend.label : trendLabel) || description;
+  const isPositive = numericTrend !== undefined && numericTrend >= 0;
 
   return (
     <div
@@ -32,7 +39,7 @@ export function StatCard({
       )}
     >
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-muted-foreground">{label}</span>
+        <span className="text-sm font-medium text-muted-foreground">{displayLabel}</span>
         {Icon && (
           <div className="size-9 rounded-lg bg-primary/10 flex items-center justify-center">
             <Icon className="size-4 text-primary" />
@@ -45,9 +52,9 @@ export function StatCard({
           {suffix && <span className="text-base font-medium text-muted-foreground ml-0.5">{suffix}</span>}
         </span>
       </div>
-      {(trend !== undefined || trendLabel) && (
+      {(numericTrend !== undefined || displayTrendLabel) && (
         <div className="flex items-center gap-1.5">
-          {trend !== undefined && (
+          {numericTrend !== undefined && (
             <span
               className={cn(
                 "inline-flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded-md",
@@ -62,11 +69,11 @@ export function StatCard({
                 <TrendingDown className="size-3" />
               )}
               {isPositive ? "+" : ""}
-              {trend}%
+              {numericTrend}%
             </span>
           )}
-          {trendLabel && (
-            <span className="text-xs text-muted-foreground">{trendLabel}</span>
+          {displayTrendLabel && (
+            <span className="text-xs text-muted-foreground">{displayTrendLabel}</span>
           )}
         </div>
       )}

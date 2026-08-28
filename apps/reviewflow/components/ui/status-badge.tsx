@@ -13,6 +13,9 @@ const statusConfig: Record<FeedbackStatus, { label: string; classes: string }> =
   draft_generated: { label: "Draft Generated", classes: "bg-blue-50 text-blue-700 border-blue-200" },
   draft_approved: { label: "Draft Approved", classes: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   google_opened: { label: "Google Opened", classes: "bg-violet-50 text-violet-700 border-violet-200" },
+  pending: { label: "Pending", classes: "bg-amber-50 text-amber-700 border-amber-200" },
+  approved: { label: "Approved", classes: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  resolved: { label: "Resolved", classes: "bg-slate-50 text-slate-700 border-slate-200" },
 };
 
 export function StatusBadge({ status, className }: StatusBadgeProps) {

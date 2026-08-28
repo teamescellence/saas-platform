@@ -9,8 +9,10 @@ use App\Models\ReviewEvent;
 use App\Models\QrCode;
 use App\Models\QrScan;
 use App\Models\Branch;
+use App\Models\BusinessCategory;
 use App\Models\UsageRecord;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 
 class DashboardController extends Controller
 {
@@ -51,11 +53,11 @@ class DashboardController extends Controller
         return response()->json([
             'total_reviews' => $googleActions > 0 ? $googleActions : $totalFeedback,
             'reviews_trend' => 15.2,
-            'average_rating' => $avgRating ?: 4.5,
+            'average_rating' => $avgRating ?: 5.0,
             'total_feedback' => $totalFeedback,
             'feedback_this_week' => $feedbackThisWeek,
             'google_actions' => $googleActions,
-            'conversion_rate' => $conversionRate ?: 30.0,
+            'conversion_rate' => $conversionRate ?: 0.0,
         ]);
     }
 
@@ -64,10 +66,10 @@ class DashboardController extends Controller
         list($organization, $business) = $this->getBusinessForRequest($request);
 
         $dataPoints = [];
-        for ($i = 5; $i >= 0; $i--) {
+        for ($i = 6; $i >= 0; $i--) {
             $date = now()->subDays($i)->format('Y-m-d');
             $dataPoints[] = [
-                'date' => $date,
+                'date' => now()->subDays($i)->format('M d'),
                 'feedback' => Feedback::where('business_id', $business->id)->whereDate('submitted_at', $date)->count(),
                 'ai_drafts' => ReviewDraft::whereHas('feedback', fn($q) => $q->where('business_id', $business->id))->whereDate('created_at', $date)->count(),
                 'google_actions' => ReviewEvent::whereHas('feedback', fn($q) => $q->where('business_id', $business->id))->where('event_type', 'google_redirect')->whereDate('created_at', $date)->count(),
@@ -87,11 +89,11 @@ class DashboardController extends Controller
         $googleActions = ReviewEvent::whereHas('feedback', fn($q) => $q->where('business_id', $business->id))->where('event_type', 'google_redirect')->count();
 
         return response()->json([
-            ['label' => 'QR Scans', 'value' => $qrScans ?: 100],
-            ['label' => 'Feedback', 'value' => $feedback ?: 30],
-            ['label' => 'AI Draft', 'value' => $aiDrafts ?: 25],
-            ['label' => 'Approved', 'value' => $aiDrafts ?: 22],
-            ['label' => 'Google Action', 'value' => $googleActions ?: 15],
+            ['label' => 'QR Scans', 'value' => $qrScans ?: ($feedback * 3)],
+            ['label' => 'Feedback', 'value' => $feedback],
+            ['label' => 'AI Draft', 'value' => $aiDrafts ?: $feedback],
+            ['label' => 'Approved', 'value' => $aiDrafts ?: $feedback],
+            ['label' => 'Google Action', 'value' => $googleActions ?: round($feedback * 0.7)],
         ]);
     }
 
@@ -106,21 +108,40 @@ class DashboardController extends Controller
         $total = $positive + $neutral + $negative;
 
         return response()->json([
-            'positive' => $total > 0 ? round(($positive / $total) * 100) : 80,
-            'neutral' => $total > 0 ? round(($neutral / $total) * 100) : 15,
-            'negative' => $total > 0 ? round(($negative / $total) * 100) : 5,
+            'positive' => $total > 0 ? round(($positive / $total) * 100) : 100,
+            'neutral' => $total > 0 ? round(($neutral / $total) * 100) : 0,
+            'negative' => $total > 0 ? round(($negative / $total) * 100) : 0,
         ]);
     }
 
     public function topics(Request $request)
     {
-        return response()->json([
-            ['topic' => 'Coffee Quality', 'count' => 45, 'sentiment' => 'positive'],
-            ['topic' => 'Service Speed', 'count' => 32, 'sentiment' => 'positive'],
-            ['topic' => 'Staff Hospitality', 'count' => 28, 'sentiment' => 'positive'],
-            ['topic' => 'Waiting Time', 'count' => 14, 'sentiment' => 'negative'],
-            ['topic' => 'Parking Space', 'count' => 8, 'sentiment' => 'negative'],
-        ]);
+        list($organization, $business) = $this->getBusinessForRequest($request);
+
+        $feedbacks = Feedback::where('business_id', $business->id)->with('analysis')->get();
+        $topicMap = [];
+
+        foreach ($feedbacks as $fb) {
+            $topics = $fb->analysis?->topics ?? [];
+            foreach ($topics as $t) {
+                $topicName = ucwords($t);
+                if (!isset($topicMap[$topicName])) {
+                    $topicMap[$topicName] = ['topic' => $topicName, 'count' => 0, 'sentiment' => $fb->analysis?->sentiment ?? 'positive'];
+                }
+                $topicMap[$topicName]['count']++;
+            }
+        }
+
+        $result = array_values($topicMap);
+        if (empty($result)) {
+            $result = [
+                ['topic' => 'Customer Experience', 'count' => 12, 'sentiment' => 'positive'],
+                ['topic' => 'Service Quality', 'count' => 8, 'sentiment' => 'positive'],
+                ['topic' => 'Speed & Efficiency', 'count' => 6, 'sentiment' => 'positive'],
+            ];
+        }
+
+        return response()->json($result);
     }
 
     public function recentFeedback(Request $request)
@@ -130,7 +151,7 @@ class DashboardController extends Controller
         $feedbacks = Feedback::with(['reviewSession', 'reviewSession.qrCode', 'latestDraft', 'analysis'])
             ->where('business_id', $business->id)
             ->latest('submitted_at')
-            ->limit(10)
+            ->limit(20)
             ->get()
             ->map(function ($item) {
                 $latestDraft = $item->latestDraft;
@@ -175,11 +196,12 @@ class DashboardController extends Controller
                 'id' => $qr->id,
                 'name' => $qr->name,
                 'token' => $qr->token_hash,
-                'url' => config('app.url') . "/q/" . $qr->token_hash,
+                'url' => url('/q/' . $qr->token_hash),
                 'total_scans' => $qr->scan_count,
                 'is_active' => $qr->status === 'active',
                 'created_at' => $qr->created_at->toIso8601String(),
                 'branch' => $qr->branch ? [
+                    'id' => $qr->branch->id,
                     'name' => $qr->branch->name
                 ] : null,
             ];
@@ -218,21 +240,76 @@ class DashboardController extends Controller
     {
         list($organization, $business) = $this->getBusinessForRequest($request);
 
+        $category = $business->category;
+
         return response()->json([
             'id' => $business->id,
+            'organization_id' => $organization->id,
+            'organization_name' => $organization->name,
             'name' => $business->name,
             'slug' => $business->slug,
+            'subdomain' => $business->slug . '.reviewflow.in',
+            'category_id' => $business->category_id,
+            'category' => $category ? $category->slug : 'cafe',
+            'category_name' => $category ? $category->name : 'Cafe',
             'website' => $business->website,
             'phone' => $business->phone,
             'email' => $business->email,
             'description' => $business->description,
             'google_review_url' => $business->google_review_url,
+            'address' => $business->address_line_1,
             'city' => $business->city,
             'state' => $business->state,
             'country' => $business->country,
             'postal_code' => $business->postal_code,
+            'default_language' => 'en',
+            'ai_tone' => 'friendly',
+            'review_length' => 'medium',
             'is_active' => $business->status === 'active',
         ]);
+    }
+
+    public function updateBusiness(Request $request)
+    {
+        list($organization, $business) = $this->getBusinessForRequest($request);
+
+        $validated = $request->validate([
+            'name' => 'sometimes|required|string|max:255',
+            'category' => 'nullable|string',
+            'website' => 'nullable|string|max:255',
+            'phone' => 'nullable|string|max:50',
+            'email' => 'nullable|email|max:255',
+            'description' => 'nullable|string|max:3000',
+            'google_review_url' => 'nullable|string|max:1000',
+            'address' => 'nullable|string|max:255',
+            'city' => 'nullable|string|max:100',
+            'state' => 'nullable|string|max:100',
+            'country' => 'nullable|string|max:100',
+            'postal_code' => 'nullable|string|max:20',
+        ]);
+
+        $categoryId = $business->category_id;
+        if (!empty($validated['category'])) {
+            $cat = BusinessCategory::where('slug', $validated['category'])->first();
+            if ($cat) $categoryId = $cat->id;
+        }
+
+        $business->update([
+            'name' => $validated['name'] ?? $business->name,
+            'category_id' => $categoryId,
+            'website' => array_key_exists('website', $validated) ? $validated['website'] : $business->website,
+            'phone' => array_key_exists('phone', $validated) ? $validated['phone'] : $business->phone,
+            'email' => array_key_exists('email', $validated) ? $validated['email'] : $business->email,
+            'description' => array_key_exists('description', $validated) ? $validated['description'] : $business->description,
+            'google_review_url' => array_key_exists('google_review_url', $validated) ? $validated['google_review_url'] : $business->google_review_url,
+            'address_line_1' => array_key_exists('address', $validated) ? $validated['address'] : $business->address_line_1,
+            'city' => array_key_exists('city', $validated) ? $validated['city'] : $business->city,
+            'state' => array_key_exists('state', $validated) ? $validated['state'] : $business->state,
+            'country' => array_key_exists('country', $validated) ? $validated['country'] : $business->country,
+            'postal_code' => array_key_exists('postal_code', $validated) ? $validated['postal_code'] : $business->postal_code,
+        ]);
+
+        return $this->businessInfo($request);
     }
 
     public function subscription(Request $request)
@@ -243,11 +320,21 @@ class DashboardController extends Controller
             abort(403, 'No organization associated with this user.');
         }
 
+        $business = $organization->businesses()->first();
         $subscription = $organization->subscriptions()->with('plan')->first();
 
         if (!$subscription) {
-            return response()->json(['message' => 'No subscription found.'], 404);
+            $defaultPlan = \App\Models\Plan::where('slug', 'growth')->first() ?? \App\Models\Plan::first();
+            $subscription = $organization->subscriptions()->create([
+                'plan_id' => $defaultPlan->id,
+                'status' => 'active',
+                'starts_at' => now(),
+                'ends_at' => now()->addYear(),
+            ]);
+            $subscription->load('plan');
         }
+
+        $plan = $subscription->plan;
 
         return response()->json([
             'id' => $subscription->id,
@@ -255,27 +342,29 @@ class DashboardController extends Controller
             'starts_at' => $subscription->starts_at ? $subscription->starts_at->toIso8601String() : null,
             'ends_at' => $subscription->ends_at ? $subscription->ends_at->toIso8601String() : null,
             'plan' => [
-                'name' => $subscription->plan->name,
-                'slug' => $subscription->plan->slug,
-                'price' => $subscription->plan->price,
-                'features' => $subscription->plan->features ?? [],
+                'name' => $plan->name,
+                'slug' => $plan->slug,
+                'price' => (float)$plan->price,
+                'currency' => $plan->currency ?? 'INR',
+                'billing_period' => $plan->billing_interval ?? 'monthly',
+                'features' => $plan->features ?? [],
             ],
             'usage' => [
                 'ai_generations' => [
-                    'current' => UsageRecord::where('organization_id', $organization->id)->where('metric', 'ai_generation')->sum('quantity'),
-                    'limit' => $subscription->plan->max_ai_generations,
+                    'current' => (int)UsageRecord::where('organization_id', $organization->id)->where('metric', 'ai_generation')->sum('quantity'),
+                    'limit' => $plan->max_ai_generations,
                 ],
                 'feedback' => [
-                    'current' => Feedback::whereHas('reviewSession', fn($q) => $q->where('organization_id', $organization->id))->count(),
-                    'limit' => $subscription->plan->max_feedbacks,
+                    'current' => $business ? (int)Feedback::where('business_id', $business->id)->count() : 0,
+                    'limit' => $plan->max_feedbacks,
                 ],
                 'qr_codes' => [
-                    'current' => QrCode::whereHas('business', fn($q) => $q->where('organization_id', $organization->id))->count(),
-                    'limit' => $subscription->plan->max_qr_codes,
+                    'current' => $business ? (int)QrCode::where('business_id', $business->id)->count() : 0,
+                    'limit' => $plan->max_qr_codes,
                 ],
                 'branches' => [
-                    'current' => Branch::whereHas('business', fn($q) => $q->where('organization_id', $organization->id))->count(),
-                    'limit' => $subscription->plan->max_branches,
+                    'current' => $business ? (int)Branch::where('business_id', $business->id)->count() : 0,
+                    'limit' => $plan->max_branches,
                 ]
             ]
         ]);
@@ -305,4 +394,3 @@ class DashboardController extends Controller
         return response()->json($branches);
     }
 }
-

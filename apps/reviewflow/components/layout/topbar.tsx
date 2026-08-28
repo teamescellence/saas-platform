@@ -6,13 +6,26 @@ import { Input } from "@repo/ui/components/ui/input";
 import { SidebarTrigger } from "@repo/ui/components/ui/sidebar";
 import { Separator } from "@repo/ui/components/ui/separator";
 import { BusinessAvatar } from "@/components/ui/business-avatar";
-import { MOCK_BUSINESS, MOCK_CURRENT_USER } from "@/lib/mock-data";
+import { useAuth } from "@/lib/auth-context";
+import { useQuery } from "@tanstack/react-query";
+import { api, endpoints } from "@/lib/api";
 
 interface TopbarProps {
   showBusinessSelector?: boolean;
 }
 
 export function Topbar({ showBusinessSelector = true }: TopbarProps) {
+  const { user } = useAuth();
+
+  const { data: business } = useQuery<any>({
+    queryKey: ["business"],
+    queryFn: () => api.get<any>(endpoints.business),
+    enabled: !!user,
+  });
+
+  const businessName = business?.name || (user?.name ? `${user.name}'s Business` : "My Business");
+  const userName = user?.name || "Owner";
+
   return (
     <header className="flex h-14 items-center gap-3 border-b border-border px-4 bg-card/50 backdrop-blur-sm sticky top-0 z-30">
       <SidebarTrigger className="-ml-1" />
@@ -40,15 +53,15 @@ export function Topbar({ showBusinessSelector = true }: TopbarProps) {
         {/* Business Selector */}
         {showBusinessSelector && (
           <Button variant="ghost" size="sm" className="gap-2 h-8 px-2">
-            <BusinessAvatar name={MOCK_BUSINESS.name} size="sm" className="size-6" />
-            <span className="text-sm font-medium hidden sm:inline">{MOCK_BUSINESS.name}</span>
+            <BusinessAvatar name={businessName} size="sm" className="size-6" />
+            <span className="text-sm font-medium hidden sm:inline">{businessName}</span>
             <ChevronDown className="size-3 text-muted-foreground" />
           </Button>
         )}
 
         {/* User Avatar */}
-        <Button variant="ghost" size="icon">
-          <BusinessAvatar name={MOCK_CURRENT_USER.name} size="sm" className="size-7" />
+        <Button variant="ghost" size="icon" title={userName}>
+          <BusinessAvatar name={userName} size="sm" className="size-7" />
         </Button>
       </div>
     </header>

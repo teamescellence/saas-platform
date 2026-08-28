@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { MOCK_BUSINESS, BUSINESS_CATEGORIES } from "@/lib/mock-data";
+import { BUSINESS_CATEGORIES } from "@/lib/mock-data";
 import { Button } from "@repo/ui/components/ui/button";
 import { Input } from "@repo/ui/components/ui/input";
 import { Label } from "@repo/ui/components/ui/label";
@@ -9,38 +9,96 @@ import { Textarea } from "@repo/ui/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@repo/ui/components/ui/select";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@repo/ui/components/ui/card";
 import { toast } from "sonner";
-import { Building, MapPin, Globe, Sparkles, Image as ImageIcon, Save, ShieldAlert } from "lucide-react";
+import { Building, MapPin, Globe, Sparkles, Image as ImageIcon, Save, ShieldAlert, Loader2 } from "lucide-react";
 import { BusinessAvatar } from "@/components/ui/business-avatar";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { api, endpoints } from "@/lib/api";
 
 export default function BusinessProfilePage() {
-  const [isSaving, setIsSaving] = React.useState(false);
+  const queryClient = useQueryClient();
+
+  const { data: business, isLoading } = useQuery<any>({
+    queryKey: ["business"],
+    queryFn: () => api.get<any>(endpoints.business),
+  });
 
   // Form states
-  const [name, setName] = React.useState(MOCK_BUSINESS.name);
-  const [category, setCategory] = React.useState(MOCK_BUSINESS.category);
-  const [description, setDescription] = React.useState(MOCK_BUSINESS.description || "");
-  const [website, setWebsite] = React.useState(MOCK_BUSINESS.website || "");
-  const [phone, setPhone] = React.useState(MOCK_BUSINESS.phone || "");
+  const [name, setName] = React.useState("");
+  const [category, setCategory] = React.useState("cafe");
+  const [description, setDescription] = React.useState("");
+  const [website, setWebsite] = React.useState("");
+  const [phone, setPhone] = React.useState("");
 
-  const [address, setAddress] = React.useState(MOCK_BUSINESS.address || "");
-  const [city, setCity] = React.useState(MOCK_BUSINESS.city || "");
-  const [state, setState] = React.useState(MOCK_BUSINESS.state || "");
-  const [postalCode, setPostalCode] = React.useState(MOCK_BUSINESS.postal_code || "");
+  const [address, setAddress] = React.useState("");
+  const [city, setCity] = React.useState("");
+  const [state, setState] = React.useState("");
+  const [postalCode, setPostalCode] = React.useState("");
 
-  const [googleUrl, setGoogleUrl] = React.useState(MOCK_BUSINESS.google_review_url || "");
+  const [googleUrl, setGoogleUrl] = React.useState("");
+  const [language, setLanguage] = React.useState("en");
+  const [aiTone, setAiTone] = React.useState("friendly");
+  const [reviewLength, setReviewLength] = React.useState("medium");
 
-  const [language, setLanguage] = React.useState(MOCK_BUSINESS.default_language);
-  const [aiTone, setAiTone] = React.useState(MOCK_BUSINESS.ai_tone);
-  const [reviewLength, setReviewLength] = React.useState(MOCK_BUSINESS.review_length);
+  // Populate state when backend data loads
+  React.useEffect(() => {
+    if (business) {
+      setName(business.name || "");
+      setCategory(business.category || "cafe");
+      setDescription(business.description || "");
+      setWebsite(business.website || "");
+      setPhone(business.phone || "");
+      setAddress(business.address || "");
+      setCity(business.city || "");
+      setState(business.state || "");
+      setPostalCode(business.postal_code || "");
+      setGoogleUrl(business.google_review_url || "");
+      setLanguage(business.default_language || "en");
+      setAiTone(business.ai_tone || "friendly");
+      setReviewLength(business.review_length || "medium");
+    }
+  }, [business]);
+
+  const saveMutation = useMutation({
+    mutationFn: (updatedData: any) => api.patch(endpoints.businessUpdate, updatedData),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["business"], data);
+      queryClient.invalidateQueries({ queryKey: ["business"] });
+      toast.success("Business profile updated successfully!");
+    },
+    onError: (err: any) => {
+      const errorMsg = err.errors
+        ? Object.values(err.errors).flat().join(" ")
+        : err.message || "Failed to save profile changes.";
+      toast.error(errorMsg);
+    },
+  });
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSaving(true);
-    setTimeout(() => {
-      setIsSaving(false);
-      toast.success("Business profile updated successfully!");
-    }, 1000);
+    saveMutation.mutate({
+      name,
+      category,
+      description,
+      website,
+      phone,
+      address,
+      city,
+      state,
+      postal_code: postalCode,
+      google_review_url: googleUrl,
+      default_language: language,
+      ai_tone: aiTone,
+      review_length: reviewLength,
+    });
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="size-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -61,7 +119,7 @@ export default function BusinessProfilePage() {
           <CardContent className="space-y-4">
             <div className="flex flex-col sm:flex-row gap-6 items-center sm:items-start">
               <div className="flex flex-col items-center gap-2">
-                <BusinessAvatar name={name} size="lg" className="size-20" />
+                <BusinessAvatar name={name || "Business"} size="lg" className="size-20" />
                 <Button variant="outline" size="xs" type="button" className="gap-1">
                   <ImageIcon className="size-3" /> Change Logo
                 </Button>
@@ -74,7 +132,7 @@ export default function BusinessProfilePage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="biz-cat">Category</Label>
-                  <Select value={category} onValueChange={(val: any) => setCategory(val)}>
+                  <Select value={category} onValueChange={(val) => setCategory(val)}>
                     <SelectTrigger id="biz-cat">
                       <SelectValue placeholder="Select Category" />
                     </SelectTrigger>
@@ -151,7 +209,7 @@ export default function BusinessProfilePage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="biz-g-url">Google review URL</Label>
+              <Label htmlFor="biz-g-url">Google Review URL</Label>
               <Input
                 id="biz-g-url"
                 value={googleUrl}
@@ -192,7 +250,7 @@ export default function BusinessProfilePage() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="biz-ai-tone">AI Tone</Label>
-              <Select value={aiTone} onValueChange={(val: any) => setAiTone(val)}>
+              <Select value={aiTone} onValueChange={(val) => setAiTone(val)}>
                 <SelectTrigger id="biz-ai-tone">
                   <SelectValue />
                 </SelectTrigger>
@@ -206,7 +264,7 @@ export default function BusinessProfilePage() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="biz-ai-len">Review Length</Label>
-              <Select value={reviewLength} onValueChange={(val: any) => setReviewLength(val)}>
+              <Select value={reviewLength} onValueChange={(val) => setReviewLength(val)}>
                 <SelectTrigger id="biz-ai-len">
                   <SelectValue />
                 </SelectTrigger>
@@ -228,8 +286,8 @@ export default function BusinessProfilePage() {
             </div>
           </CardContent>
           <CardFooter className="bg-muted/10 border-t border-border/50 p-4 flex justify-end">
-            <Button type="submit" disabled={isSaving} className="gap-1.5">
-              <Save className="size-4" /> {isSaving ? "Saving..." : "Save Changes"}
+            <Button type="submit" disabled={saveMutation.isPending} className="gap-1.5">
+              <Save className="size-4" /> {saveMutation.isPending ? "Saving..." : "Save Changes"}
             </Button>
           </CardFooter>
         </Card>
