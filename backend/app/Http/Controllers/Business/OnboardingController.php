@@ -174,7 +174,7 @@ class OnboardingController extends Controller
                 'id' => $qrCode->id,
                 'name' => $qrCode->name,
                 'token' => $qrCode->token_hash,
-                'url' => url('/q/' . $qrCode->token_hash),
+                'url' => $qrCode->url,
             ],
             'plan' => $plan ? [
                 'id' => $plan->id,

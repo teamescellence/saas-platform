@@ -22,6 +22,16 @@ class QrCode extends Model
         'status',
     ];
 
+    protected $appends = [
+        'url',
+    ];
+
+    public function getUrlAttribute(): string
+    {
+        $frontendUrl = rtrim(config('app.frontend_url'), '/');
+        return "{$frontendUrl}/q/{$this->token_hash}";
+    }
+
     public function business(): BelongsTo
     {
         return $this->belongsTo(Business::class);

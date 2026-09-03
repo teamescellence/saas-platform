@@ -13,22 +13,82 @@ class ReviewGenerator
 {
     public function generate(Feedback $feedback): ReviewDraft
     {
-        $rating = $feedback->rating;
-        $comment = $feedback->comment ?? '';
+        $rating = (int)$feedback->rating;
+        $rawComment = trim($feedback->comment ?? '');
         $business = $feedback->business;
 
-        $businessContext = "";
-        if ($business) {
-            $businessContext .= "Business Name: {$business->name}\n";
-            if ($business->description) {
-                $businessContext .= "Business Description: {$business->description}\n";
-            }
-            if ($business->city) {
-                $businessContext .= "Location: {$business->city}\n";
-            }
+        $businessName = $business ? $business->name : 'this place';
+        $category = $business && $business->category ? $business->category->name : 'place';
+
+        // Load custom business settings configured by owner
+        $language = $feedback->language ?: ($business ? $business->getSetting('default_language', 'en') : 'en');
+        $tone = $business ? $business->getSetting('ai_tone', 'casual') : 'casual';
+        $length = $business ? $business->getSetting('review_length', 'medium') : 'medium';
+        $customGuidelines = $business ? $business->getSetting('custom_ai_instructions', '') : '';
+
+        $toneInstruction = match ($tone) {
+            'enthusiastic' => 'Enthusiastic and energetic customer voice (thrilled, loves the vibe).',
+            'friendly' => 'Warm, friendly, and appreciative customer voice.',
+            'concise' => 'Short, straight to the point (no extra fluff).',
+            'professional' => 'Polite, well-spoken, and respectful tone.',
+            default => 'Casual, everyday voice like texting a friend about a visit.',
+        };
+
+        $lengthInstruction = match ($length) {
+            'short' => 'STRICTLY 1 to 2 short sentences (approx 15 to 25 words max).',
+            'detailed' => '3 to 4 natural sentences (approx 45 to 60 words max).',
+            default => 'STRICTLY 2 to 3 short sentences (approx 25 to 40 words max).',
+        };
+
+        $langInstruction = match ($language) {
+            'hi' => 'Write in natural Hindi (Devanagari script).',
+            'hinglish' => 'Write in Hinglish (Hindi words written using English/Latin alphabet, e.g. "Khana bohot tasty tha aur staff bhi polite tha").',
+            'es' => 'Write in natural Spanish.',
+            'fr' => 'Write in natural French.',
+            'de' => 'Write in natural German.',
+            default => 'Write in natural English.',
+        };
+
+        $guidelineSnippet = !empty($customGuidelines) ? "Owner's Special Guidelines: \"{$customGuidelines}\"\n" : "";
+
+        // Query active prompt template managed by admin (category-specific or global default)
+        $template = null;
+        if ($business && $business->category_id) {
+            $template = \App\Models\AiPromptTemplate::where('category_id', $business->category_id)
+                ->where('status', 'active')
+                ->latest('id')
+                ->first();
+        }
+        if (!$template) {
+            $template = \App\Models\AiPromptTemplate::whereNull('category_id')
+                ->where('status', 'active')
+                ->latest('id')
+                ->first();
         }
 
-        $promptText = "{$businessContext}Rating: {$rating} stars.\nRaw feedback: \"{$comment}\".";
+        if ($template && !empty($template->user_prompt)) {
+            $promptText = strtr($template->user_prompt, [
+                '{business_name}' => $businessName,
+                '{category}' => $category,
+                '{rating}' => (string)$rating,
+                '{customer_notes}' => $rawComment,
+                '{owner_guidelines}' => $guidelineSnippet,
+                '{tone}' => $toneInstruction,
+                '{length}' => $lengthInstruction,
+                '{language}' => $langInstruction,
+            ]);
+        } else {
+            $promptText = "Business: {$businessName} ({$category})\n" .
+                "Rating: {$rating}/5 stars\n" .
+                "Customer highlights & notes: \"{$rawComment}\"\n" .
+                $guidelineSnippet .
+                "Tone: {$toneInstruction}\n" .
+                "Length: {$lengthInstruction}\n" .
+                "Language: {$langInstruction}\n" .
+                "Write the review:";
+        }
+
+        $promptVersion = $template ? $template->version : 'v1';
 
         $generatedText = '';
         $inputTokens = 0;
@@ -40,29 +100,14 @@ class ReviewGenerator
             $response = $agent->prompt($promptText);
 
             $generatedText = trim($response->text);
+            $generatedText = trim($generatedText, "\"'\n\r ");
             $inputTokens = $response->usage->promptTokens ?? 0;
             $outputTokens = $response->usage->completionTokens ?? 0;
             $modelName = $response->meta->model ?? 'default';
         } catch (\Exception $e) {
-            Log::warning("AI generation failed, falling back to mock generator: " . $e->getMessage());
+            Log::warning("AI generation failed or offline, falling back to human review generator: " . $e->getMessage());
 
-            // Provide a high-quality mock response based on the feedback comment and rating (~200 words)
-            $bizName = $business ? $business->name : 'this business';
-            if (!empty($comment)) {
-                $generatedText = "I recently visited {$bizName} and wanted to share my detailed thoughts. Overall, I would rate my experience as a solid {$rating} out of 5 stars. {$comment} " .
-                    "The service was handled in a professional manner, and it's clear the management is dedicated to providing a quality experience. " .
-                    "They paid great attention to the cleanliness and overall presentation of the location. " .
-                    "I really appreciated the warm welcome we received upon arrival, and the staff made sure we were comfortable throughout our time there. " .
-                    "It is rare to find places that maintain such consistent quality standards. I will definitely be returning to {$bizName} soon with my family and friends, and I highly recommend others in the area to check them out as well!";
-            } else {
-                $generatedText = match ((int)$rating) {
-                    5 => "I recently had the pleasure of visiting {$bizName} and it was an absolute delight from start to finish! The service was prompt, the staff was extremely warm, and the overall experience exceeded all my expectations. Every detail was handled with care, making our visit memorable. I highly recommend {$bizName} to anyone looking for premium quality. Definitely a 5-star experience that I will be sharing with all my friends and family. Will be visiting again very soon!",
-                    4 => "I had a very good experience during my recent visit to {$bizName}. The service was polite, and the overall quality was highly impressive. The staff was friendly and attentive to our needs. While there is minor room for quick adjustments, the overall environment and value were wonderful. I definitely recommend visiting {$bizName} and will return for another pleasant experience.",
-                    3 => "My recent visit to {$bizName} was decent, but left some room for improvement. The service was acceptable, and the staff was polite, but there were some noticeable delays. The quality of the experience was average. It's a nice place, but with a bit more focus on responsiveness and efficiency, it could easily become much better. A fair 3-star rating.",
-                    2 => "Unfortunately, my experience at {$bizName} did not meet expectations. We faced significant delays in service, and the staff seemed quite distracted. Although the location itself has potential, the lack of coordination and speed made our visit frustrating. I hope the management takes note of this feedback and implements training to improve the service quality. 2 stars.",
-                    default => "I was highly disappointed with my visit to {$bizName}. The service was extremely poor, the wait times were unacceptable, and the overall experience was very sub-par. I tried to resolve it with the staff, but there was no proper response. I cannot recommend {$bizName} based on this experience, and I sincerely hope they take immediate action to revamp their operations.",
-                };
-            }
+            $generatedText = $this->generateHumanFallback($businessName, $rating, $rawComment, $tone, $length, $language);
             $inputTokens = strlen($promptText);
             $outputTokens = strlen($generatedText);
             $modelName = 'mock-generator';
@@ -74,7 +119,7 @@ class ReviewGenerator
             'version' => 1,
             'generated_text' => $generatedText,
             'model' => $modelName,
-            'prompt_version' => 'v1',
+            'prompt_version' => 'v4',
             'input_tokens' => $inputTokens,
             'output_tokens' => $outputTokens,
             'status' => 'generated',
@@ -87,13 +132,15 @@ class ReviewGenerator
             'event_type' => 'draft_generated',
             'metadata' => [
                 'rating' => $rating,
-                'comment_length' => strlen($comment),
+                'tone' => $tone,
+                'length' => $length,
+                'language' => $language,
+                'comment_length' => strlen($rawComment),
             ],
             'created_at' => now(),
         ]);
 
         // Increment the usage record for AI generations
-        $business = $feedback->business;
         if ($business) {
             UsageRecord::create([
                 'organization_id' => $business->organization_id,
@@ -106,5 +153,95 @@ class ReviewGenerator
         }
 
         return $draft;
+    }
+
+    /**
+     * Generates a casual, natural review matching owner settings if offline.
+     */
+    private function generateHumanFallback(
+        string $bizName,
+        int $rating,
+        string $rawComment,
+        string $tone = 'casual',
+        string $length = 'medium',
+        string $language = 'en'
+    ): string {
+        $highlights = [];
+        $extraNote = '';
+
+        if (preg_match('/Highlights:\s*([^.]+)\.?(.*)/is', $rawComment, $matches)) {
+            $tagString = trim($matches[1]);
+            $highlights = array_filter(array_map('trim', explode(',', $tagString)));
+            $extraNote = trim($matches[2]);
+        } elseif (!empty($rawComment)) {
+            $extraNote = $rawComment;
+        }
+
+        // Clean extra note
+        $cleanNote = preg_replace('/^(Note|Comment|Feedback):\s*/i', '', $extraNote);
+        $cleanNote = trim($cleanNote, " .\t\n\r");
+
+        // Format highlight mention casually
+        $highlightPhrase = '';
+        if (!empty($highlights)) {
+            $count = count($highlights);
+            if ($count === 1) {
+                $highlightPhrase = strtolower($highlights[0]);
+            } elseif ($count === 2) {
+                $highlightPhrase = strtolower($highlights[0]) . ' and ' . strtolower($highlights[1]);
+            } else {
+                $last = array_pop($highlights);
+                $highlightPhrase = strtolower(implode(', ', $highlights)) . ' and ' . strtolower($last);
+            }
+        }
+
+        if ($language === 'hi' || $language === 'hinglish') {
+            if ($rating >= 4) {
+                $hTag = $highlightPhrase ? "{$highlightPhrase} bohot badhiya tha" : "experience bohot accha tha";
+                return "{$bizName} mein {$hTag}. " . ($cleanNote ? "{$cleanNote}. " : "") . "Staff kaafi polite aur service fast thi. Definitely visit karenge dobara!";
+            } else {
+                return "{$bizName} mein visit theek thaak raha. Service thodi aur fast ho sakti thi.";
+            }
+        }
+
+        $seed = crc32($bizName . $rawComment . $rating) % 4;
+
+        if ($rating >= 5) {
+            if ($highlightPhrase && $cleanNote) {
+                $options = [
+                    "Loved the {$highlightPhrase} at {$bizName}! {$cleanNote}. Definitely coming back.",
+                    "Really great spot! The {$highlightPhrase} was on point, and {$cleanNote}.",
+                    "Super happy with {$bizName}. {$cleanNote} The {$highlightPhrase} made it totally worth it.",
+                    "Such a good experience here. {$cleanNote}. The {$highlightPhrase} was awesome!"
+                ];
+                return $options[abs($seed)];
+            } elseif ($highlightPhrase) {
+                $options = [
+                    "Had a great time at {$bizName}! The {$highlightPhrase} was really good and staff was super friendly. Will be back!",
+                    "Loved the {$highlightPhrase} here. Everything was smooth and the whole vibe was great.",
+                    "Honestly a top spot. The {$highlightPhrase} was spot on and service was quick!",
+                    "Really impressed with {$bizName}. The {$highlightPhrase} was awesome. Definitely worth checking out!"
+                ];
+                return $options[abs($seed)];
+            } elseif ($cleanNote) {
+                return "Great visit to {$bizName}! {$cleanNote}. Everything was super smooth, will definitely be back.";
+            } else {
+                return "Great experience at {$bizName}! Friendly people, super fast service, and good vibes all around.";
+            }
+        } elseif ($rating === 4) {
+            if ($highlightPhrase && $cleanNote) {
+                return "Pretty good visit to {$bizName}. Loved the {$highlightPhrase}. {$cleanNote}. Will visit again!";
+            } elseif ($highlightPhrase) {
+                return "Pretty good visit to {$bizName}! The {$highlightPhrase} was solid and people were friendly.";
+            } elseif ($cleanNote) {
+                return "Good experience at {$bizName}. {$cleanNote}. Pretty satisfied overall with the visit.";
+            } else {
+                return "Good visit to {$bizName}. Quick service, polite staff, and good quality overall.";
+            }
+        } elseif ($rating === 3) {
+            return "Decent visit to {$bizName}. Was alright overall, but could be a bit quicker.";
+        } else {
+            return "Didn't have a great experience today at {$bizName}. Service and wait times need improvement.";
+        }
     }
 }

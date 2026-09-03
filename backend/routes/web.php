@@ -12,3 +12,8 @@ Route::get('/login', function () {
         'frontend_url' => env('FRONTEND_URL', 'http://localhost:3000/login')
     ], 401);
 })->name('login');
+
+Route::get('/q/{token}', function (string $token) {
+    $frontendUrl = rtrim(config('app.frontend_url'), '/');
+    return redirect("{$frontendUrl}/q/{$token}");
+});

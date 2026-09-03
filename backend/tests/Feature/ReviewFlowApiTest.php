@@ -360,7 +360,7 @@ class ReviewFlowApiTest extends TestCase
             'Authorization' => "Bearer {$token}",
         ]);
         $response->assertStatus(200)
-            ->assertJsonCount(6);
+            ->assertJsonCount(7);
 
         // Test funnel
         $response = $this->getJson('/api/v1/dashboard/funnel', [

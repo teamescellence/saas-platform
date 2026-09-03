@@ -196,7 +196,7 @@ class DashboardController extends Controller
                 'id' => $qr->id,
                 'name' => $qr->name,
                 'token' => $qr->token_hash,
-                'url' => url('/q/' . $qr->token_hash),
+                'url' => $qr->url,
                 'total_scans' => $qr->scan_count,
                 'is_active' => $qr->status === 'active',
                 'created_at' => $qr->created_at->toIso8601String(),
@@ -241,6 +241,7 @@ class DashboardController extends Controller
         list($organization, $business) = $this->getBusinessForRequest($request);
 
         $category = $business->category;
+        $reviewTags = $business->getSetting('review_tags', null);
 
         return response()->json([
             'id' => $business->id,
@@ -257,14 +258,18 @@ class DashboardController extends Controller
             'email' => $business->email,
             'description' => $business->description,
             'google_review_url' => $business->google_review_url,
+            'tripadvisor_url' => $business->getSetting('tripadvisor_url', ''),
+            'makemytrip_url' => $business->getSetting('makemytrip_url', ''),
+            'review_tags' => is_array($reviewTags) ? $reviewTags : [],
             'address' => $business->address_line_1,
             'city' => $business->city,
             'state' => $business->state,
             'country' => $business->country,
             'postal_code' => $business->postal_code,
-            'default_language' => 'en',
-            'ai_tone' => 'friendly',
-            'review_length' => 'medium',
+            'default_language' => $business->getSetting('default_language', 'en'),
+            'ai_tone' => $business->getSetting('ai_tone', 'casual'),
+            'review_length' => $business->getSetting('review_length', 'medium'),
+            'custom_ai_instructions' => $business->getSetting('custom_ai_instructions', ''),
             'is_active' => $business->status === 'active',
         ]);
     }
@@ -281,6 +286,13 @@ class DashboardController extends Controller
             'email' => 'nullable|email|max:255',
             'description' => 'nullable|string|max:3000',
             'google_review_url' => 'nullable|string|max:1000',
+            'tripadvisor_url' => 'nullable|string|max:1000',
+            'makemytrip_url' => 'nullable|string|max:1000',
+            'review_tags' => 'nullable|array',
+            'default_language' => 'nullable|string|max:10',
+            'ai_tone' => 'nullable|string|max:50',
+            'review_length' => 'nullable|string|max:50',
+            'custom_ai_instructions' => 'nullable|string|max:1000',
             'address' => 'nullable|string|max:255',
             'city' => 'nullable|string|max:100',
             'state' => 'nullable|string|max:100',
@@ -308,6 +320,28 @@ class DashboardController extends Controller
             'country' => array_key_exists('country', $validated) ? $validated['country'] : $business->country,
             'postal_code' => array_key_exists('postal_code', $validated) ? $validated['postal_code'] : $business->postal_code,
         ]);
+
+        if (array_key_exists('review_tags', $validated)) {
+            $business->setSetting('review_tags', $validated['review_tags']);
+        }
+        if (array_key_exists('tripadvisor_url', $validated)) {
+            $business->setSetting('tripadvisor_url', $validated['tripadvisor_url']);
+        }
+        if (array_key_exists('makemytrip_url', $validated)) {
+            $business->setSetting('makemytrip_url', $validated['makemytrip_url']);
+        }
+        if (array_key_exists('default_language', $validated)) {
+            $business->setSetting('default_language', $validated['default_language']);
+        }
+        if (array_key_exists('ai_tone', $validated)) {
+            $business->setSetting('ai_tone', $validated['ai_tone']);
+        }
+        if (array_key_exists('review_length', $validated)) {
+            $business->setSetting('review_length', $validated['review_length']);
+        }
+        if (array_key_exists('custom_ai_instructions', $validated)) {
+            $business->setSetting('custom_ai_instructions', $validated['custom_ai_instructions']);
+        }
 
         return $this->businessInfo($request);
     }

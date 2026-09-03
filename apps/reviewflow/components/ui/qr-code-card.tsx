@@ -51,7 +51,15 @@ export function QRCodeCard({
 
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/50 px-3 py-2 rounded-lg">
         <Link className="size-3 shrink-0" />
-        <span className="truncate font-mono">{qrCode.url}</span>
+        <a
+          href={qrCode.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="truncate font-mono hover:text-primary hover:underline"
+          title="Open Review Page"
+        >
+          {qrCode.url}
+        </a>
       </div>
 
       <div className="flex items-center gap-2 text-sm text-muted-foreground">

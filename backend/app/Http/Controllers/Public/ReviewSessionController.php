@@ -25,6 +25,7 @@ class ReviewSessionController extends Controller
         if ($existingSession) {
             $qrCode = $existingSession->qrCode;
             $business = $existingSession->business;
+            $reviewTags = $business->getSetting('review_tags', []);
 
             return response()->json([
                 'session_token' => $existingSession->session_token,
@@ -34,6 +35,9 @@ class ReviewSessionController extends Controller
                     'logo' => $business->logo,
                     'description' => $business->description,
                     'google_review_url' => $business->google_review_url,
+                    'tripadvisor_url' => $business->getSetting('tripadvisor_url', ''),
+                    'makemytrip_url' => $business->getSetting('makemytrip_url', ''),
+                    'review_tags' => is_array($reviewTags) ? $reviewTags : [],
                 ],
                 'branch' => $qrCode->branch ? [
                     'name' => $qrCode->branch->name,
@@ -48,6 +52,7 @@ class ReviewSessionController extends Controller
 
         $business = $qrCode->business;
         $sessionKey = 'review_session_' . $qrCode->id;
+        $reviewTags = $business->getSetting('review_tags', []);
 
         // Check if there is an active session stored in the Laravel session
         if (session()->has($sessionKey)) {
@@ -64,6 +69,9 @@ class ReviewSessionController extends Controller
                         'logo' => $business->logo,
                         'description' => $business->description,
                         'google_review_url' => $business->google_review_url,
+                        'tripadvisor_url' => $business->getSetting('tripadvisor_url', ''),
+                        'makemytrip_url' => $business->getSetting('makemytrip_url', ''),
+                        'review_tags' => is_array($reviewTags) ? $reviewTags : [],
                     ],
                     'branch' => $qrCode->branch ? [
                         'name' => $qrCode->branch->name,
@@ -144,6 +152,9 @@ class ReviewSessionController extends Controller
                 'logo' => $business->logo,
                 'description' => $business->description,
                 'google_review_url' => $business->google_review_url,
+                'tripadvisor_url' => $business->getSetting('tripadvisor_url', ''),
+                'makemytrip_url' => $business->getSetting('makemytrip_url', ''),
+                'review_tags' => is_array($reviewTags) ? $reviewTags : [],
             ],
             'branch' => $qrCode->branch ? [
                 'name' => $qrCode->branch->name,
@@ -153,10 +164,14 @@ class ReviewSessionController extends Controller
 
     public function submitFeedback(SubmitFeedbackRequest $request, string $token)
     {
-        $session = ReviewSession::where('session_token', $token)
-            ->whereIn('status', ['started', 'completed'])
-            ->where('expires_at', '>', now())
-            ->firstOrFail();
+        $session = ReviewSession::where(function ($query) use ($token) {
+            $query->where('session_token', $token)
+                  ->orWhereHas('qrCode', fn($q) => $q->where('token_hash', $token));
+        })
+        ->whereIn('status', ['started', 'completed'])
+        ->where('expires_at', '>', now())
+        ->latest('id')
+        ->firstOrFail();
 
         $validated = $request->validated();
 
@@ -198,18 +213,34 @@ class ReviewSessionController extends Controller
 
     public function generateDraft(Request $request, string $token)
     {
-        $session = ReviewSession::where('session_token', $token)
-            ->where('status', 'completed')
-            ->firstOrFail();
-
-        // Get the associated feedback
-        $feedback = Feedback::where('review_session_id', $session->id)->firstOrFail();
+        $session = ReviewSession::where(function ($query) use ($token) {
+            $query->where('session_token', $token)
+                  ->orWhereHas('qrCode', fn($q) => $q->where('token_hash', $token));
+        })
+        ->whereIn('status', ['started', 'completed'])
+        ->latest('id')
+        ->firstOrFail();
 
         // Validate optional overrides in request payload
         $validated = $request->validate([
             'rating' => ['nullable', 'integer', 'min:1', 'max:5'],
             'comment' => ['nullable', 'string', 'max:5000'],
         ]);
+
+        // Get or create the associated feedback
+        $feedback = Feedback::firstOrCreate(
+            ['review_session_id' => $session->id],
+            [
+                'business_id' => $session->business_id,
+                'branch_id' => $session->branch_id,
+                'qr_code_id' => $session->qr_code_id,
+                'rating' => $validated['rating'] ?? 5,
+                'comment' => $validated['comment'] ?? null,
+                'language' => 'en',
+                'status' => 'pending',
+                'submitted_at' => now(),
+            ]
+        );
 
         if (isset($validated['rating'])) {
             $feedback->rating = $validated['rating'];

@@ -20,6 +20,7 @@ class DatabaseSeeder extends Seeder
             BusinessCategorySeeder::class,
             AdminSeeder::class,
             BusinessSeeder::class,
+            AiPromptTemplateSeeder::class,
         ]);
 
         User::factory()->create([

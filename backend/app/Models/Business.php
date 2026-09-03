@@ -55,4 +55,29 @@ class Business extends Model
     {
         return $this->hasMany(Feedback::class);
     }
+
+    public function settings(): HasMany
+    {
+        return $this->hasMany(BusinessSetting::class);
+    }
+
+    public function getSetting(string $key, mixed $default = null): mixed
+    {
+        $setting = $this->settings()->where('key', $key)->first();
+        if (!$setting || $setting->value === null) {
+            return $default;
+        }
+
+        $decoded = json_decode($setting->value, true);
+        return (json_last_error() === JSON_ERROR_NONE) ? $decoded : $setting->value;
+    }
+
+    public function setSetting(string $key, mixed $value): void
+    {
+        $storedValue = is_array($value) ? json_encode($value) : $value;
+        $this->settings()->updateOrCreate(
+            ['key' => $key],
+            ['value' => $storedValue]
+        );
+    }
 }

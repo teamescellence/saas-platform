@@ -9,7 +9,7 @@ import { Label } from "@repo/ui/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@repo/ui/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@repo/ui/components/ui/select";
 import { toast } from "sonner";
-import { Plus, QrCode, ScanLine, CheckSquare, Download, Copy, Printer, Eye, Settings, Loader2 } from "lucide-react";
+import { Plus, QrCode, ScanLine, CheckSquare, Download, Copy, Printer, Eye, Settings, Loader2, ExternalLink } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import Link from "next/link";
 
@@ -252,6 +252,15 @@ export default function QrCodesPage() {
               </div>
 
               <DialogFooter className="flex flex-col sm:flex-row gap-2 justify-center">
+                <Button
+                  variant="outline"
+                  className="w-full sm:w-auto gap-1.5"
+                  onClick={() => {
+                    window.open(selectedQr.url, "_blank");
+                  }}
+                >
+                  <ExternalLink className="size-4" /> Open Page
+                </Button>
                 <Button variant="outline" className="w-full sm:w-auto gap-1.5" onClick={() => handleCopy(selectedQr)}>
                   <Copy className="size-4" /> Copy URL
                 </Button>
