@@ -9,6 +9,7 @@ import * as LucideIcons from "lucide-react";
 import { cn } from "@repo/ui/lib/utils";
 import { BUSINESS_CATEGORIES } from "@/lib/mock-data";
 import { api, endpoints } from "@/lib/api";
+import { mockGenerateReviewOptions, ReviewOption } from "@/lib/mock-review-generator";
 import { toast } from "sonner";
 
 // ── Theme Design Tokens & Config ─────────────────────────────────────────────
@@ -76,8 +77,6 @@ interface CustomerReviewScreenProps {
 type ViewState =
   | "step1_rating"
   | "step2_details"
-  | "generating"
-  | "review_ready"
   | "share"
   | "thankyou";
 
@@ -88,15 +87,15 @@ export function CustomerReviewScreen({
 }: CustomerReviewScreenProps) {
   const [viewState, setViewState] = React.useState<ViewState>("step1_rating");
   const [hoveredRating, setHoveredRating] = React.useState<number | null>(null);
-  const [aiDraft, setAiDraft] = React.useState("");
-  const [editedReview, setEditedReview] = React.useState("");
-  const [isEditing, setIsEditing] = React.useState(false);
-  const [generationError, setGenerationError] = React.useState<string | null>(null);
-  const reviewTextareaRef = React.useRef<HTMLTextAreaElement | null>(null);
+
+  // Review options & editing state
+  const [reviewOptions, setReviewOptions] = React.useState<ReviewOption[]>([]);
+  const [editingOptionId, setEditingOptionId] = React.useState<string | null>(null);
+  const [copiedText, setCopiedText] = React.useState<string>("");
 
   const form = useForm<ReviewFormValues>({
     resolver: zodResolver(reviewFormSchema),
-    defaultValues: { rating: 0, selectedTags: [], customComment: "" },
+    defaultValues: { rating: 5, selectedTags: [], customComment: "" },
   });
 
   const { register, setValue, watch, getValues } = form;
@@ -135,6 +134,18 @@ export function CustomerReviewScreen({
 
   const currentDisplayRating = hoveredRating !== null ? hoveredRating : formRating;
 
+  // Generate review options whenever rating, tags, or custom comments change
+  React.useEffect(() => {
+    const currentRating = formRating > 0 ? formRating : 5;
+    const generatedList = mockGenerateReviewOptions({
+      rating: currentRating,
+      selectedTags: getValues("selectedTags") || [],
+      additionalComment: (getValues("customComment") || "").trim(),
+      businessName,
+    });
+    setReviewOptions(generatedList);
+  }, [formRating, watch("selectedTags"), watch("customComment"), businessName]);
+
   // Resolve Category Icon dynamically
   const getCategoryIcon = (catId: string) => {
     const cat = BUSINESS_CATEGORIES.find((c) => c.id === catId);
@@ -144,7 +155,7 @@ export function CustomerReviewScreen({
 
   const CategoryIconComponent = getCategoryIcon(category);
 
-  // ── Mutations ──────────────────────────────────────────────────────────────
+  // ── Feedback Submit Mutation ──────────────────────────────────────────────
   const submitFeedbackMutation = useMutation({
     mutationFn: async () => {
       const rawComment = (getValues("customComment") || "").trim();
@@ -163,58 +174,16 @@ export function CustomerReviewScreen({
       });
     },
     onError: (_err: any) => {
-      toast.error("Something went wrong submitting feedback. Please try again.");
+      // Silent log error
     },
   });
 
-  const generateDraftMutation = useMutation({
-    mutationFn: async () => {
-      setGenerationError(null);
-      const rawComment = (getValues("customComment") || "").trim();
-      const tags = getValues("selectedTags") || [];
-      const commentText =
-        tags.length > 0
-          ? rawComment
-            ? `Highlights: ${tags.join(", ")}. ${rawComment}`
-            : `Highlights: ${tags.join(", ")}`
-          : rawComment;
-
-      return api.post<any>(endpoints.publicGenerateDraft(activeToken), {
-        rating: getValues("rating"),
-        comment: commentText,
-      });
-    },
-    onSuccess: (data) => {
-      const draftText = data.draft?.generated_text || "";
-      setAiDraft(draftText);
-      setEditedReview(draftText);
-      setIsEditing(false);
-      setViewState("review_ready");
-    },
-    onError: (_err: any) => {
-      setGenerationError("Something went wrong while creating your review. Please try again.");
-    },
-  });
-
-  // Handle flow transition from Screen 2 submit
-  const handleProceedFromDetails = async () => {
-    const rating = getValues("rating");
-    if (rating >= 4) {
-      setViewState("generating");
-      try {
-        await submitFeedbackMutation.mutateAsync();
-      } catch {
-        // Continue generation even if log feedback submit encountered minor issue
-      }
-      generateDraftMutation.mutate();
-    } else {
-      setViewState("generating");
-      try {
-        await submitFeedbackMutation.mutateAsync();
-        setViewState("thankyou");
-      } catch {
-        setViewState("step2_details");
-      }
+  const handleRatingChange = (n: number) => {
+    setValue("rating", n, { shouldValidate: true });
+    if (n < 4) {
+      // If low rating (1-3 stars), direct to private feedback thank you
+      submitFeedbackMutation.mutate();
+      setViewState("thankyou");
     }
   };
 
@@ -227,33 +196,27 @@ export function CustomerReviewScreen({
     );
   };
 
-  const handleCopyReview = () => {
-    const textToCopy = (editedReview || aiDraft).trim();
+  const handleCopyOption = (optionText: string) => {
+    const textToCopy = optionText.trim();
     if (textToCopy) {
+      setCopiedText(textToCopy);
       navigator.clipboard.writeText(textToCopy).catch(() => {});
     }
 
+    submitFeedbackMutation.mutate();
     toast.success("Review copied ✓");
     setViewState("share");
   };
 
-  const handleToggleEdit = () => {
-    if (!isEditing) {
-      setIsEditing(true);
-      setTimeout(() => {
-        if (reviewTextareaRef.current) {
-          reviewTextareaRef.current.focus();
-        }
-      }, 50);
-    } else {
-      setIsEditing(false);
-    }
+  const handleUpdateOptionText = (id: string, newText: string) => {
+    setReviewOptions((prev) =>
+      prev.map((opt) => (opt.id === id ? { ...opt, text: newText } : opt))
+    );
   };
 
   const handlePlatformShare = (platformUrl: string | undefined, platformName: string) => {
-    const textToCopy = (editedReview || aiDraft).trim();
-    if (textToCopy) {
-      navigator.clipboard.writeText(textToCopy).catch(() => {});
+    if (copiedText) {
+      navigator.clipboard.writeText(copiedText).catch(() => {});
     }
     toast.success(`Copied to clipboard! Opening ${platformName}...`);
 
@@ -269,26 +232,44 @@ export function CustomerReviewScreen({
   };
 
   // Header step text formatting
-  let stepHeaderText = "FEEDBACK TICKET · STEP 1 OF 3";
+  let stepHeaderText = "STEP 1 OF 3 • RATING & REVIEWS";
+  let stepProgressWidth = "33%";
   if (viewState === "step1_rating") {
-    stepHeaderText = "FEEDBACK TICKET · STEP 1 OF 3";
+    stepHeaderText = "STEP 1 OF 3 • RATING & REVIEWS";
+    stepProgressWidth = "33%";
   } else if (viewState === "step2_details") {
-    stepHeaderText = "FEEDBACK TICKET · STEP 2 OF 3";
-  } else if (viewState === "generating") {
-    stepHeaderText = "FEEDBACK TICKET · GENERATING AI REVIEW";
-  } else if (viewState === "review_ready") {
-    stepHeaderText = "FEEDBACK TICKET · STEP 2 OF 3";
+    stepHeaderText = "STEP 2 OF 3 • CUSTOMIZE HIGHLIGHTS";
+    stepProgressWidth = "66%";
   } else if (viewState === "share") {
-    stepHeaderText = "FEEDBACK TICKET · STEP 3 OF 3";
+    stepHeaderText = "STEP 3 OF 3 • POST ON GOOGLE";
+    stepProgressWidth = "100%";
   } else if (viewState === "thankyou") {
-    stepHeaderText = "FEEDBACK TICKET · COMPLETED";
+    stepHeaderText = "COMPLETED • PRIVATE FEEDBACK";
+    stepProgressWidth = "100%";
   }
+
+  // Rating label helper
+  const getRatingLabel = (r: number) => {
+    switch (r) {
+      case 5:
+        return "Loved it! Absolutely wonderful";
+      case 4:
+        return "Good! Very enjoyable";
+      case 3:
+        return "Okay! Room for improvement";
+      case 2:
+        return "Needs improvement";
+      case 1:
+        return "Unsatisfactory experience";
+      default:
+        return "Tap stars to rate";
+    }
+  };
 
   // ── Error State Screen ─────────────────────────────────────────────────────
   if (activeError) {
     let errorMsg = "Invalid or expired review link. Please scan the QR code again.";
     const rawMsg = (activeError as any).message || "";
-
     if (
       rawMsg &&
       !rawMsg.includes("Model") &&
@@ -301,41 +282,65 @@ export function CustomerReviewScreen({
     }
     return (
       <div
-        className="min-h-screen w-full flex items-center justify-center p-5 font-sans antialiased select-none"
+        className="min-h-screen w-full flex items-center justify-center p-4 sm:p-6 font-sans antialiased select-none relative overflow-hidden"
         style={{
-          background: `radial-gradient(circle at 50% 25%, ${COLORS.backdropCenter} 0%, ${COLORS.backdropEdge} 70%)`,
+          background: `radial-gradient(circle at 50% 20%, ${COLORS.backdropCenter} 0%, ${COLORS.backdropEdge} 65%, #0B0806 100%)`,
         }}
       >
-        <div className="w-full max-w-sm">
-          <div className="rounded-2xl shadow-2xl px-7 py-8 relative overflow-hidden" style={{ backgroundColor: COLORS.paper }}>
-            {/* Ticket header */}
-            <div className="text-center">
-              <h1 className="font-mono font-bold text-lg tracking-widest uppercase" style={{ color: COLORS.ink }}>
-                ReviewFlow
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 rounded-full bg-amber-600/10 blur-3xl pointer-events-none animate-pulse" />
+        <div className="w-full max-w-md relative z-10">
+          <div
+            className="rounded-3xl shadow-[0_30px_70px_-15px_rgba(0,0,0,0.7)] border border-amber-950/20 px-6 sm:px-8 py-8 relative overflow-hidden"
+            style={{ backgroundColor: COLORS.paper }}
+          >
+            <div className="h-1.5 w-full absolute top-0 left-0 bg-red-800" />
+
+            {/* Header */}
+            <div className="text-center pt-2">
+              <h1
+                className="font-mono font-bold text-lg tracking-widest uppercase"
+                style={{ color: COLORS.ink }}
+              >
+                ReviewFlow AI
               </h1>
-              <p className="font-mono text-xs mt-3 tracking-widest uppercase" style={{ color: COLORS.inkMuted }}>
+              <p
+                className="font-mono text-xs mt-1 tracking-widest uppercase font-semibold"
+                style={{ color: COLORS.inkMuted }}
+              >
                 Link Status
               </p>
             </div>
 
             {/* Tear line with notches */}
-            <div className="relative -mx-7 my-6 flex items-center justify-between">
-              <div className="absolute left-0 w-3 h-6 rounded-r-full -translate-x-1/2" style={{ backgroundColor: COLORS.backdropEdge }} />
-              <div className="w-full border-t-2 border-dashed" style={{ borderColor: COLORS.paperLine }} />
-              <div className="absolute right-0 w-3 h-6 rounded-l-full translate-x-1/2" style={{ backgroundColor: COLORS.backdropEdge }} />
+            <div className="relative -mx-6 sm:-mx-8 my-6 flex items-center justify-between">
+              <div
+                className="w-4 h-7 rounded-r-full -translate-x-1/2"
+                style={{ backgroundColor: COLORS.backdropEdge }}
+              />
+              <div
+                className="w-full border-t-2 border-dashed"
+                style={{ borderColor: COLORS.paperLine }}
+              />
+              <div
+                className="w-4 h-7 rounded-l-full translate-x-1/2"
+                style={{ backgroundColor: COLORS.backdropEdge }}
+              />
             </div>
 
             {/* Error Content */}
             <div className="text-center py-4">
               <div className="flex justify-center mb-4">
-                <div className="w-16 h-16 rounded-full flex items-center justify-center bg-red-100">
+                <div className="w-16 h-16 rounded-full flex items-center justify-center bg-red-100 border border-red-200 shadow-sm">
                   <LucideIcons.ShieldAlert className="w-8 h-8 text-red-700" />
                 </div>
               </div>
               <h2 className="font-bold text-xl" style={{ color: COLORS.ink }}>
-                Link Expired
+                Link Expired or Invalid
               </h2>
-              <p className="text-sm mt-2 leading-relaxed" style={{ color: COLORS.inkMuted }}>
+              <p
+                className="text-xs sm:text-sm mt-2 leading-relaxed"
+                style={{ color: COLORS.inkMuted }}
+              >
                 {errorMsg}
               </p>
             </div>
@@ -345,13 +350,14 @@ export function CustomerReviewScreen({
               <button
                 type="button"
                 onClick={() => window.location.reload()}
-                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm transition-all duration-150 hover:opacity-90 active:scale-95 focus:outline-none cursor-pointer shadow-md"
+                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm transition-all duration-150 hover:opacity-95 active:scale-95 focus:outline-none cursor-pointer shadow-md"
                 style={{
                   backgroundColor: COLORS.stamp,
                   color: COLORS.paperInset,
                 }}
               >
-                Try Again
+                <LucideIcons.RotateCw className="size-4" />
+                Try Scanning Again
               </button>
             </div>
           </div>
@@ -363,81 +369,154 @@ export function CustomerReviewScreen({
   // ── Main Customer Journey Component ─────────────────────────────────────────
   return (
     <div
-      className="min-h-screen w-full flex items-center justify-center p-5 font-sans antialiased select-none"
+      className="min-h-screen w-full flex items-center justify-center p-4 sm:p-6 font-sans antialiased select-none relative overflow-hidden"
       style={{
-        background: `radial-gradient(circle at 50% 25%, ${COLORS.backdropCenter} 0%, ${COLORS.backdropEdge} 70%)`,
+        background: `radial-gradient(circle at 50% 20%, ${COLORS.backdropCenter} 0%, ${COLORS.backdropEdge} 65%, #0B0806 100%)`,
       }}
     >
-      <div className="w-full max-w-sm">
-        <div className="rounded-2xl shadow-2xl px-7 py-8 relative overflow-hidden" style={{ backgroundColor: COLORS.paper }}>
+      {/* Background glow ambient particle */}
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-amber-600/10 blur-3xl pointer-events-none animate-pulse" />
+
+      <div className="w-full max-w-md relative z-10 my-4">
+        {/* Ticket Outer Shell */}
+        <div
+          className="rounded-3xl shadow-[0_30px_70px_-15px_rgba(0,0,0,0.7),0_15px_30px_-10px_rgba(0,0,0,0.5)] border border-[#EBE6DC]/20 px-6 sm:px-8 py-7 relative overflow-hidden transition-all duration-300"
+          style={{ backgroundColor: COLORS.paper }}
+        >
+          {/* Top Decorative Stripe */}
+          <div className="h-1.5 w-full absolute top-0 left-0 bg-gradient-to-r from-[#2F5D45] via-[#438260] to-[#2F5D45]" />
 
           {/* Ticket Header */}
-          <div className="text-center flex flex-col items-center">
-            {logoUrl && (
+          <div className="text-center flex flex-col items-center pt-1">
+            {logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={logoUrl}
                 alt={businessName}
-                className="w-10 h-10 rounded-xl object-cover mb-3 border shadow-sm"
+                className="w-12 h-12 rounded-2xl object-cover mb-3 border-2 shadow-sm"
                 style={{ borderColor: COLORS.paperLine }}
               />
+            ) : (
+              <div
+                className="w-12 h-12 rounded-2xl flex items-center justify-center mb-3 shadow-xs border"
+                style={{
+                  backgroundColor: COLORS.paperInset,
+                  borderColor: COLORS.paperLine,
+                }}
+              >
+                <span className="font-serif font-black text-xl text-[#2F5D45]">
+                  {businessName.charAt(0).toUpperCase()}
+                </span>
+              </div>
             )}
-            <h1 className="font-mono font-bold text-lg tracking-widest uppercase leading-tight" style={{ color: COLORS.ink }}>
+
+            <h1
+              className="font-bold text-xl sm:text-2xl tracking-tight uppercase leading-tight font-serif"
+              style={{ color: COLORS.ink }}
+            >
               {businessName}
             </h1>
-            <p className="font-mono text-xs mt-1" style={{ color: COLORS.inkMuted }}>
-              {branchName} · {tableName}
-            </p>
-            <p className="font-mono text-[11px] mt-3 tracking-widest uppercase font-semibold" style={{ color: COLORS.inkMuted }}>
-              {stepHeaderText}
-            </p>
+
+            <div className="flex items-center gap-2 mt-1">
+              <span
+                className="font-mono text-xs flex items-center gap-1 font-semibold"
+                style={{ color: COLORS.inkMuted }}
+              >
+                <LucideIcons.MapPin className="size-3 text-[#2F5D45]" />
+                {branchName}
+              </span>
+              <span className="text-xs" style={{ color: COLORS.paperLine }}>
+                •
+              </span>
+              <span
+                className="font-mono text-xs font-medium"
+                style={{ color: COLORS.inkMuted }}
+              >
+                {tableName}
+              </span>
+            </div>
+
+            {/* Step Badge & Progress Line */}
+            <div className="mt-3.5 w-full flex flex-col items-center">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#2F5D45]/10 border border-[#2F5D45]/25">
+                <LucideIcons.Sparkles className="size-3 text-[#2F5D45]" />
+                <span className="font-mono text-[10px] font-bold tracking-wider text-[#2F5D45] uppercase">
+                  {stepHeaderText}
+                </span>
+              </div>
+              {/* Progress Line */}
+              <div
+                className="w-full h-1 rounded-full mt-2.5 overflow-hidden"
+                style={{ backgroundColor: `${COLORS.paperLine}60` }}
+              >
+                <div
+                  className="h-full bg-[#2F5D45] transition-all duration-300 ease-out"
+                  style={{ width: stepProgressWidth }}
+                />
+              </div>
+            </div>
           </div>
 
           {/* Ticket Cutout Tear Line */}
-          <div className="relative -mx-7 my-6 flex items-center justify-between">
-            <div className="absolute left-0 w-3 h-6 rounded-r-full -translate-x-1/2" style={{ backgroundColor: COLORS.backdropEdge }} />
-            <div className="w-full border-t-2 border-dashed" style={{ borderColor: COLORS.paperLine }} />
-            <div className="absolute right-0 w-3 h-6 rounded-l-full translate-x-1/2" style={{ backgroundColor: COLORS.backdropEdge }} />
+          <div className="relative -mx-6 sm:-mx-8 my-5 flex items-center justify-between">
+            <div
+              className="w-4 h-7 rounded-r-full -translate-x-1/2 shadow-inner"
+              style={{ backgroundColor: COLORS.backdropEdge }}
+            />
+            <div
+              className="w-full border-t-2 border-dashed"
+              style={{ borderColor: COLORS.paperLine }}
+            />
+            <div
+              className="w-4 h-7 rounded-l-full translate-x-1/2 shadow-inner"
+              style={{ backgroundColor: COLORS.backdropEdge }}
+            />
           </div>
 
           {/* ═════════════════════════════════════════════════════════════════ */}
-          {/* SCREEN 1 — EXPERIENCE RATING */}
+          {/* SCREEN 1 — RATING + INSTANT PRE-WRITTEN REVIEWS LIST */}
           {/* ═════════════════════════════════════════════════════════════════ */}
           {viewState === "step1_rating" && (
             <div className="animate-in fade-in duration-300">
               <div className="text-center">
-                <h2 className="font-bold text-xl leading-tight" style={{ color: COLORS.ink }}>
+                <h2
+                  className="font-bold text-xl sm:text-2xl leading-tight"
+                  style={{ color: COLORS.ink }}
+                >
                   How was your experience?
                 </h2>
-                <p className="text-sm mt-1 mb-6" style={{ color: COLORS.inkMuted }}>
-                  Give us your honest take — it takes 30 seconds
+                <p
+                  className="text-xs mt-1 mb-4 font-medium transition-colors"
+                  style={{ color: COLORS.stamp }}
+                >
+                  {getRatingLabel(currentDisplayRating)}
                 </p>
 
                 {/* 5 Rating Stamps */}
-                <div className="flex justify-center gap-3 mb-4">
+                <div className="flex justify-center gap-2.5 sm:gap-3.5 mb-5">
                   {[1, 2, 3, 4, 5].map((n) => {
                     const filled = n <= currentDisplayRating;
                     return (
                       <button
                         key={n}
                         type="button"
-                        onClick={() => setValue("rating", n, { shouldValidate: true })}
+                        onClick={() => handleRatingChange(n)}
                         onMouseEnter={() => setHoveredRating(n)}
                         onMouseLeave={() => setHoveredRating(null)}
                         aria-label={`Rate ${n} out of 5`}
                         aria-pressed={filled}
                         className={cn(
-                          "w-12 h-12 rounded-full flex items-center justify-center transition-all duration-150 hover:scale-105 active:scale-95 focus:outline-none cursor-pointer",
-                          filled ? "" : "border-2 border-dashed"
+                          "w-11 h-11 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center transition-all duration-200 transform hover:scale-110 active:scale-95 focus:outline-none cursor-pointer",
+                          filled
+                            ? "bg-gradient-to-br from-[#2F5D45] to-[#1E3E2E] text-[#F4F2EC] shadow-md ring-2 ring-[#2F5D45]/30"
+                            : "bg-[#F4F2EC] border-2 border-dashed border-[#C9C2B4] text-[#8C8478] hover:border-[#2F5D45]/50"
                         )}
-                        style={{
-                          backgroundColor: filled ? COLORS.stamp : "transparent",
-                          borderColor: filled ? "transparent" : COLORS.paperLine,
-                        }}
                       >
                         <CategoryIconComponent
-                          className={cn("w-5 h-5", TILTS[(n - 1) % TILTS.length])}
-                          style={{ color: filled ? COLORS.paperInset : COLORS.inkMuted }}
+                          className={cn(
+                            "w-5 h-5 sm:w-6 sm:h-6 transition-transform",
+                            TILTS[(n - 1) % TILTS.length]
+                          )}
                           strokeWidth={filled ? 2 : 1.5}
                         />
                       </button>
@@ -445,55 +524,197 @@ export function CustomerReviewScreen({
                   })}
                 </div>
 
-                <div className="h-8 flex items-center justify-center text-center">
-                  <p className="text-xs font-medium px-2" style={{ color: COLORS.inkMuted }}>
-                    Tap a stamp to rate your visit
-                  </p>
+                {/* Pre-Written Reviews Subheader */}
+                <div className="flex items-center justify-between px-1 mb-3 pt-2 border-t border-dashed border-[#C9C2B4]/80">
+                  <div className="flex items-center gap-1.5">
+                    <LucideIcons.Sparkles
+                      className="size-4"
+                      style={{ color: COLORS.stamp }}
+                    />
+                    <span
+                      className="text-xs font-bold uppercase tracking-wider font-mono"
+                      style={{ color: COLORS.ink }}
+                    >
+                      Pre-Written Reviews
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-bold font-mono px-2 py-0.5 rounded-full bg-[#2F5D45]/10 text-[#2F5D45]">
+                    1-Tap Copy
+                  </span>
                 </div>
-              </div>
 
-              {/* CTA */}
-              <div className="mt-6">
+                {/* List of Pre-Written Review Options */}
+                <div className="space-y-3.5 mb-4">
+                  {reviewOptions.map((opt) => {
+                    const isEditingThis = editingOptionId === opt.id;
+                    const isJustCopied = copiedText === opt.text;
+
+                    // Color theme per category badge
+                    let badgeStyle =
+                      "bg-emerald-800 text-white border-emerald-900";
+                    let cardBorder =
+                      "border-emerald-700/25 bg-gradient-to-b from-[#F7F9F6] to-[#F1F5EF]";
+
+                    if (opt.category === "SHORT & DIRECT") {
+                      badgeStyle = "bg-amber-800 text-white border-amber-900";
+                      cardBorder =
+                        "border-amber-700/25 bg-gradient-to-b from-[#FAF7F2] to-[#F5EFE6]";
+                    } else if (opt.category === "DETAILED") {
+                      badgeStyle =
+                        "bg-indigo-800 text-white border-indigo-900";
+                      cardBorder =
+                        "border-indigo-700/25 bg-gradient-to-b from-[#F6F5FA] to-[#ECEAF5]";
+                    }
+
+                    return (
+                      <div
+                        key={opt.id}
+                        className={cn(
+                          "rounded-2xl p-4 text-left border-2 border-dashed relative transition-all duration-200 shadow-xs hover:shadow-md",
+                          cardBorder
+                        )}
+                      >
+                        {/* Category Header & Edit Toggle */}
+                        <div className="flex items-center justify-between mb-2">
+                          <span
+                            className={cn(
+                              "font-mono text-[9px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow-2xs border",
+                              badgeStyle
+                            )}
+                          >
+                            {opt.category}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setEditingOptionId(isEditingThis ? null : opt.id)
+                            }
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold transition-colors hover:text-[#2F5D45] cursor-pointer"
+                            style={{ color: COLORS.inkMuted }}
+                          >
+                            <LucideIcons.Edit3 className="size-3" />
+                            {isEditingThis ? "Done" : "Edit"}
+                          </button>
+                        </div>
+
+                        {/* Review Content */}
+                        {isEditingThis ? (
+                          <div className="space-y-2 pt-1">
+                            <textarea
+                              value={opt.text}
+                              onChange={(e) =>
+                                handleUpdateOptionText(opt.id, e.target.value)
+                              }
+                              rows={3}
+                              className="w-full bg-white rounded-xl p-2.5 border border-emerald-700/50 resize-none text-xs leading-relaxed font-medium focus:outline-none focus:ring-2 focus:ring-emerald-700 transition-all"
+                              style={{ color: COLORS.ink }}
+                            />
+                            <div className="flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => setEditingOptionId(null)}
+                                className="px-3 py-1 rounded-lg text-xs font-bold text-white cursor-pointer shadow-xs transition-transform active:scale-95"
+                                style={{ backgroundColor: COLORS.stamp }}
+                              >
+                                Save Text
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p
+                            className="text-xs sm:text-sm leading-relaxed font-medium pt-0.5 italic whitespace-pre-line font-serif"
+                            style={{ color: COLORS.ink }}
+                          >
+                            &ldquo;{opt.text}&rdquo;
+                          </p>
+                        )}
+
+                        {/* 1-Tap Copy & Post Action */}
+                        <div
+                          className="mt-3 pt-2.5 border-t border-dashed"
+                          style={{ borderColor: COLORS.paperLine }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => handleCopyOption(opt.text)}
+                            className={cn(
+                              "w-full flex items-center justify-center gap-1.5 py-2.5 px-4 rounded-xl font-bold text-xs transition-all duration-150 active:scale-[0.98] cursor-pointer shadow-xs focus:outline-none",
+                              isJustCopied
+                                ? "bg-emerald-900 text-white"
+                                : "hover:opacity-95"
+                            )}
+                            style={{
+                              backgroundColor: isJustCopied
+                                ? undefined
+                                : COLORS.stamp,
+                              color: COLORS.paperInset,
+                            }}
+                          >
+                            {isJustCopied ? (
+                              <>
+                                <LucideIcons.CheckCircle2 className="size-4 text-emerald-300" />
+                                Copied! Opening Google ↗
+                              </>
+                            ) : (
+                              <>
+                                <LucideIcons.Copy className="size-3.5" />
+                                Copy &amp; Post on Google ↗
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Alternate Customization Action */}
                 <button
                   type="button"
-                  disabled={formRating === 0}
                   onClick={() => setViewState("step2_details")}
-                  className={cn(
-                    "w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm transition-all duration-150 focus:outline-none",
-                    formRating > 0
-                      ? "hover:opacity-90 active:scale-95 cursor-pointer shadow-md"
-                      : "cursor-not-allowed opacity-50"
-                  )}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-dashed font-bold text-xs transition-all duration-200 hover:bg-black/5 active:scale-98 cursor-pointer shadow-2xs"
                   style={{
-                    backgroundColor: formRating > 0 ? COLORS.stamp : COLORS.stampOff,
-                    color: formRating > 0 ? COLORS.paperInset : COLORS.inkMuted,
+                    borderColor: COLORS.paperLine,
+                    color: COLORS.ink,
                   }}
                 >
-                  <LucideIcons.Sparkles className="w-4 h-4" />
-                  Create My Review
+                  <LucideIcons.SlidersHorizontal className="size-4 text-[#2F5D45]" />
+                  Customize Review (Highlights &amp; Notes) →
                 </button>
               </div>
             </div>
           )}
 
           {/* ═════════════════════════════════════════════════════════════════ */}
-          {/* SCREEN 2 — REVIEW DETAILS */}
+          {/* SCREEN 2 — CUSTOMIZE REVIEW DETAILS (TAGS & NOTES) */}
           {/* ═════════════════════════════════════════════════════════════════ */}
           {viewState === "step2_details" && (
             <div className="animate-in fade-in duration-300">
               <div className="text-center">
-                <h2 className="font-bold text-lg leading-tight" style={{ color: COLORS.ink }}>
-                  Thanks for sharing! A few words go a long way
+                <h2
+                  className="font-bold text-xl sm:text-2xl leading-tight"
+                  style={{ color: COLORS.ink }}
+                >
+                  Customize your feedback
                 </h2>
-                <p className="text-xs font-semibold uppercase tracking-wider mt-3 mb-3" style={{ color: COLORS.inkMuted }}>
-                  Select what stood out to you.
+                <p
+                  className="text-xs font-semibold uppercase tracking-wider mt-1 mb-4"
+                  style={{ color: COLORS.inkMuted }}
+                >
+                  Select what stood out &amp; add extra notes
                 </p>
 
                 {/* Category Chips */}
                 <div className="flex flex-wrap gap-2 justify-center mb-5">
                   {dynamicTags.map((tagItem: any) => {
-                    const label = typeof tagItem === "string" ? tagItem : tagItem?.label || "";
-                    const iconId = typeof tagItem === "object" && tagItem?.icon ? tagItem.icon : label;
+                    const label =
+                      typeof tagItem === "string"
+                        ? tagItem
+                        : tagItem?.label || "";
+                    const iconId =
+                      typeof tagItem === "object" && tagItem?.icon
+                        ? tagItem.icon
+                        : label;
                     const TagIcon = getTagIcon(iconId);
                     const isSelected = formSelectedTags.includes(label);
                     return (
@@ -502,16 +723,17 @@ export function CustomerReviewScreen({
                         type="button"
                         onClick={() => toggleTag(label)}
                         className={cn(
-                          "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-semibold uppercase border transition-all duration-150 active:scale-95 cursor-pointer",
-                          isSelected ? "shadow-sm" : ""
+                          "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold uppercase transition-all duration-150 active:scale-95 cursor-pointer border",
+                          isSelected
+                            ? "bg-[#2F5D45] text-[#F4F2EC] border-transparent shadow-sm scale-105"
+                            : "bg-[#F4F2EC] text-[#2B2420] border-[#C9C2B4] hover:bg-white"
                         )}
-                        style={{
-                          backgroundColor: isSelected ? COLORS.stamp : COLORS.paperInset,
-                          color: isSelected ? COLORS.paperInset : COLORS.ink,
-                          borderColor: isSelected ? "transparent" : COLORS.paperLine,
-                        }}
                       >
-                        <TagIcon className="w-3.5 h-3.5" style={{ color: isSelected ? COLORS.paperInset : COLORS.ink }} />
+                        {isSelected ? (
+                          <LucideIcons.Check className="w-3.5 h-3.5 text-emerald-300" />
+                        ) : (
+                          <TagIcon className="w-3.5 h-3.5 text-[#6B6459]" />
+                        )}
                         <span>{label}</span>
                       </button>
                     );
@@ -530,358 +752,251 @@ export function CustomerReviewScreen({
                   <textarea
                     id="visit-note"
                     {...register("customComment")}
-                    placeholder="Anything else you'd like to share?"
+                    placeholder="E.g. Loved the cozy seating, amazing latte, and fast service!"
                     rows={3}
-                    className="w-full rounded-xl px-4 py-3 text-xs leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-emerald-700 transition-all font-medium"
+                    className="w-full rounded-2xl p-3.5 text-xs sm:text-sm leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-[#2F5D45] transition-all font-medium border"
                     style={{
                       backgroundColor: COLORS.paperInset,
                       color: COLORS.ink,
-                      border: `1px solid ${COLORS.paperLine}`,
+                      borderColor: COLORS.paperLine,
                     }}
                   />
                 </div>
               </div>
 
               {/* Actions */}
-              <div className="mt-5 space-y-2">
+              <div className="mt-5 space-y-2.5">
                 <button
                   type="button"
-                  onClick={handleProceedFromDetails}
-                  className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm transition-all duration-150 hover:opacity-90 active:scale-95 cursor-pointer shadow-md focus:outline-none"
+                  onClick={() => setViewState("step1_rating")}
+                  className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm transition-all duration-150 hover:opacity-95 active:scale-98 cursor-pointer shadow-md focus:outline-none"
                   style={{
                     backgroundColor: COLORS.stamp,
                     color: COLORS.paperInset,
                   }}
                 >
-                  <LucideIcons.Sparkles className="w-4 h-4" />
-                  Create My Review
+                  <LucideIcons.Sparkles className="w-4 h-4 text-emerald-300" />
+                  Apply Customization &amp; View Reviews ✨
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setViewState("step1_rating")}
-                  className="w-full text-center py-2 text-xs font-semibold hover:underline transition-all cursor-pointer"
+                  className="w-full text-center py-2 text-xs font-semibold hover:underline transition-all cursor-pointer flex items-center justify-center gap-1"
                   style={{ color: COLORS.inkMuted }}
                 >
-                  ← Change Rating
+                  <LucideIcons.ArrowLeft className="size-3.5" /> Back to Quick Reviews
                 </button>
               </div>
             </div>
           )}
 
           {/* ═════════════════════════════════════════════════════════════════ */}
-          {/* SCREEN 3 — GENERATING AI REVIEW */}
-          {/* ═════════════════════════════════════════════════════════════════ */}
-          {viewState === "generating" && (
-            <div className="flex flex-col items-center justify-center py-10 text-center animate-in fade-in duration-300">
-              {generationError ? (
-                <div className="w-full">
-                  <div className="flex justify-center mb-3">
-                    <div className="w-14 h-14 rounded-full flex items-center justify-center bg-red-100">
-                      <LucideIcons.AlertTriangle className="w-7 h-7 text-red-700" />
-                    </div>
-                  </div>
-                  <h3 className="font-bold text-base" style={{ color: COLORS.ink }}>
-                    Generation Issue
-                  </h3>
-                  <p className="text-xs mt-2 mb-5 px-2 leading-relaxed" style={{ color: COLORS.inkMuted }}>
-                    {generationError}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => generateDraftMutation.mutate()}
-                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-xs transition-all duration-150 hover:opacity-90 active:scale-95 cursor-pointer shadow-md"
-                    style={{
-                      backgroundColor: COLORS.stamp,
-                      color: COLORS.paperInset,
-                    }}
-                  >
-                    <LucideIcons.RotateCcw className="w-3.5 h-3.5" />
-                    Try Again
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <div className="animate-spin mb-4" style={{ color: COLORS.stamp }}>
-                    <LucideIcons.Sparkles className="w-10 h-10" />
-                  </div>
-                  <h2 className="font-bold text-lg font-mono uppercase tracking-wider" style={{ color: COLORS.ink }}>
-                    CRAFTING REVIEW
-                  </h2>
-                  <p className="text-xs mt-2 max-w-[230px] leading-relaxed" style={{ color: COLORS.inkMuted }}>
-                    Our AI is writing a personalized review based on what you selected...
-                  </p>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* ═════════════════════════════════════════════════════════════════ */}
-          {/* SCREEN 4 — REVIEW READY */}
-          {/* ═════════════════════════════════════════════════════════════════ */}
-          {viewState === "review_ready" && (
-            <div className="animate-in fade-in duration-300">
-              <div className="text-center">
-                <h2 className="font-bold text-xl leading-tight" style={{ color: COLORS.ink }}>
-                  Your review is ready ✨
-                </h2>
-                <p className="text-xs mt-1 mb-4" style={{ color: COLORS.inkMuted }}>
-                  We created a review based on what you selected. Feel free to edit it.
-                </p>
-
-                {/* Rating Stamps Display */}
-                <div className="flex justify-center gap-1.5 mb-4">
-                  {[1, 2, 3, 4, 5].map((n) => {
-                    const filled = n <= formRating;
-                    return (
-                      <div
-                        key={n}
-                        className="w-6 h-6 rounded-full flex items-center justify-center"
-                        style={{
-                          backgroundColor: filled ? COLORS.stamp : COLORS.stampOff,
-                        }}
-                      >
-                        <CategoryIconComponent
-                          className="w-3.5 h-3.5"
-                          style={{ color: filled ? COLORS.paperInset : COLORS.inkMuted }}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Premium Review Card */}
-                <div
-                  className="rounded-xl p-4 text-left border-2 border-dashed relative mb-4 transition-all"
-                  style={{
-                    backgroundColor: COLORS.paperInset,
-                    borderColor: COLORS.paperLine,
-                  }}
-                >
-                  <div className="absolute -top-3 right-3">
-                    <span className="bg-emerald-800 text-white font-mono text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow">
-                      AI DRAFT
-                    </span>
-                  </div>
-
-                  {isEditing ? (
-                    <div className="space-y-2 pt-1">
-                      <textarea
-                        ref={reviewTextareaRef}
-                        value={editedReview}
-                        onChange={(e) => setEditedReview(e.target.value)}
-                        rows={5}
-                        className="w-full bg-white/70 rounded-lg p-2.5 border border-emerald-700/30 resize-none text-xs leading-relaxed font-medium focus:outline-none focus:ring-1 focus:ring-emerald-700"
-                        style={{ color: COLORS.ink }}
-                        placeholder="Edit your review here..."
-                      />
-                      <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditedReview(aiDraft);
-                            setIsEditing(false);
-                          }}
-                          className="px-2.5 py-1 rounded text-[11px] font-semibold border cursor-pointer hover:bg-black/5"
-                          style={{ borderColor: COLORS.paperLine, color: COLORS.inkMuted }}
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setIsEditing(false)}
-                          className="px-3 py-1 rounded text-[11px] font-semibold text-white cursor-pointer shadow-sm"
-                          style={{ backgroundColor: COLORS.stamp }}
-                        >
-                          Save Review
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <p
-                      className="text-xs leading-relaxed font-medium pt-1 italic whitespace-pre-line"
-                      style={{ color: COLORS.ink }}
-                    >
-                      &ldquo;{editedReview || aiDraft}&rdquo;
-                    </p>
-                  )}
-                </div>
-
-                {/* Secondary Actions: [ Edit Review ] [ Try Another ] */}
-                <div className="grid grid-cols-2 gap-2 mb-3">
-                  <button
-                    type="button"
-                    onClick={handleToggleEdit}
-                    className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-bold text-xs border transition-all duration-150 hover:bg-black/5 active:scale-95 cursor-pointer"
-                    style={{
-                      borderColor: COLORS.paperLine,
-                      color: COLORS.ink,
-                    }}
-                  >
-                    <LucideIcons.Edit3 className="w-3.5 h-3.5" />
-                    {isEditing ? "Save Edits" : "Edit Review"}
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={generateDraftMutation.isPending}
-                    onClick={() => generateDraftMutation.mutate()}
-                    className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-bold text-xs border transition-all duration-150 hover:bg-black/5 active:scale-95 cursor-pointer"
-                    style={{
-                      borderColor: COLORS.paperLine,
-                      color: COLORS.ink,
-                    }}
-                  >
-                    {generateDraftMutation.isPending ? (
-                      <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <LucideIcons.RotateCcw className="w-3.5 h-3.5" />
-                    )}
-                    Try Another
-                  </button>
-                </div>
-
-                {/* Primary CTA: Copy & Post on Google */}
-                <button
-                  type="button"
-                  onClick={handleCopyReview}
-                  className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm transition-all duration-150 hover:opacity-90 active:scale-95 cursor-pointer shadow-md focus:outline-none"
-                  style={{
-                    backgroundColor: COLORS.stamp,
-                    color: COLORS.paperInset,
-                  }}
-                >
-                  <LucideIcons.Copy className="w-4 h-4" />
-                  Copy &amp; Post on Google
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ═════════════════════════════════════════════════════════════════ */}
-          {/* SCREEN 5 — SHARE / POST */}
+          {/* SCREEN 3 — SHARE / POST */}
           {/* ═════════════════════════════════════════════════════════════════ */}
           {viewState === "share" && (
             <div className="animate-in fade-in duration-300">
               <div className="text-center">
+                {/* Copied Review Preview Banner */}
+                {copiedText && (
+                  <div className="mb-4 p-3 rounded-2xl bg-emerald-50 border border-emerald-200/80 text-left">
+                    <div className="flex items-center gap-1.5 mb-1 text-emerald-800 font-bold text-xs">
+                      <LucideIcons.CheckCircle2 className="size-4 text-emerald-600" />
+                      <span>Review Copied to Clipboard!</span>
+                    </div>
+                    <p className="text-xs text-emerald-950 font-serif italic line-clamp-2 leading-relaxed">
+                      &ldquo;{copiedText}&rdquo;
+                    </p>
+                  </div>
+                )}
+
                 <div className="flex justify-center mb-2">
-                  <div className="size-11 rounded-full flex items-center justify-center shadow-inner" style={{ backgroundColor: `${COLORS.stamp}18` }}>
-                    <LucideIcons.Share2 className="size-5" style={{ color: COLORS.stamp }} />
+                  <div
+                    className="size-12 rounded-full flex items-center justify-center shadow-inner"
+                    style={{ backgroundColor: `${COLORS.stamp}18` }}
+                  >
+                    <LucideIcons.Share2
+                      className="size-6"
+                      style={{ color: COLORS.stamp }}
+                    />
                   </div>
                 </div>
 
-                <h2 className="font-bold text-xl leading-tight" style={{ color: COLORS.ink }}>
-                  Share your experience
+                <h2
+                  className="font-bold text-xl sm:text-2xl leading-tight"
+                  style={{ color: COLORS.ink }}
+                >
+                  Post your review
                 </h2>
-                <p className="text-xs mt-1 mb-5" style={{ color: COLORS.inkMuted }}>
-                  Tap below to open the platform and paste your copied review:
+                <p
+                  className="text-xs mt-1 mb-5"
+                  style={{ color: COLORS.inkMuted }}
+                >
+                  Tap below to open Google and paste your copied review:
                 </p>
 
                 {/* Platform Card List */}
-                <div className="space-y-2.5 mb-5">
+                <div className="space-y-3 mb-5">
                   {/* Google Maps & Search Card */}
                   <button
                     type="button"
-                    onClick={() => handlePlatformShare(googleReviewUrl, "Google")}
-                    className="w-full flex items-center justify-between p-3.5 rounded-xl border transition-all duration-150 hover:shadow-md hover:scale-[1.01] active:scale-98 cursor-pointer focus:outline-none"
+                    onClick={() =>
+                      handlePlatformShare(googleReviewUrl, "Google")
+                    }
+                    className="w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all duration-200 hover:shadow-lg hover:scale-[1.01] active:scale-98 cursor-pointer focus:outline-none"
                     style={{
                       backgroundColor: COLORS.paperInset,
-                      borderColor: COLORS.paperLine,
+                      borderColor: COLORS.stamp,
                     }}
                   >
                     <div className="flex items-center gap-3">
-                      <div className="size-9 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center">
-                        <LucideIcons.Star className="size-5 text-amber-500 fill-amber-400" />
+                      <div className="size-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center shadow-xs">
+                        <LucideIcons.Star className="size-6 text-amber-500 fill-amber-400" />
                       </div>
                       <div className="text-left">
-                        <p className="text-xs font-bold" style={{ color: COLORS.ink }}>Google</p>
-                        <p className="text-[10px]" style={{ color: COLORS.inkMuted }}>Google Maps &amp; Search Reviews</p>
+                        <p
+                          className="text-sm font-bold flex items-center gap-1"
+                          style={{ color: COLORS.ink }}
+                        >
+                          Google Reviews
+                        </p>
+                        <p
+                          className="text-[11px] font-medium"
+                          style={{ color: COLORS.inkMuted }}
+                        >
+                          Google Maps &amp; Search Profile
+                        </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 text-xs font-bold text-emerald-800">
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2F5D45] text-white text-xs font-bold shadow-xs">
                       <span>Post Review</span>
                       <LucideIcons.ExternalLink className="size-3.5" />
                     </div>
                   </button>
 
-                  {/* Optional TripAdvisor Card (if configured) */}
+                  {/* Optional TripAdvisor Card */}
                   {tripadvisorUrl && (
                     <button
                       type="button"
-                      onClick={() => handlePlatformShare(tripadvisorUrl, "TripAdvisor")}
-                      className="w-full flex items-center justify-between p-3.5 rounded-xl border transition-all duration-150 hover:shadow-md hover:scale-[1.01] active:scale-98 cursor-pointer focus:outline-none"
+                      onClick={() =>
+                        handlePlatformShare(tripadvisorUrl, "TripAdvisor")
+                      }
+                      className="w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all duration-150 hover:shadow-md hover:scale-[1.01] active:scale-98 cursor-pointer focus:outline-none"
                       style={{
                         backgroundColor: COLORS.paperInset,
                         borderColor: COLORS.paperLine,
                       }}
                     >
                       <div className="flex items-center gap-3">
-                        <div className="size-9 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center">
+                        <div className="size-9 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center">
                           <LucideIcons.Compass className="size-5 text-emerald-600" />
                         </div>
                         <div className="text-left">
-                          <p className="text-xs font-bold" style={{ color: COLORS.ink }}>TripAdvisor</p>
-                          <p className="text-[10px]" style={{ color: COLORS.inkMuted }}>Travelers &amp; Guests</p>
+                          <p
+                            className="text-xs font-bold"
+                            style={{ color: COLORS.ink }}
+                          >
+                            TripAdvisor
+                          </p>
+                          <p
+                            className="text-[10px]"
+                            style={{ color: COLORS.inkMuted }}
+                          >
+                            Travelers &amp; Guests
+                          </p>
                         </div>
                       </div>
-                      <LucideIcons.ExternalLink className="size-4 opacity-50" style={{ color: COLORS.ink }} />
+                      <LucideIcons.ExternalLink
+                        className="size-4 opacity-50"
+                        style={{ color: COLORS.ink }}
+                      />
                     </button>
                   )}
 
-                  {/* Optional MakeMyTrip Card (if configured) */}
+                  {/* Optional MakeMyTrip Card */}
                   {makemytripUrl && (
                     <button
                       type="button"
-                      onClick={() => handlePlatformShare(makemytripUrl, "MakeMyTrip")}
-                      className="w-full flex items-center justify-between p-3.5 rounded-xl border transition-all duration-150 hover:shadow-md hover:scale-[1.01] active:scale-98 cursor-pointer focus:outline-none"
+                      onClick={() =>
+                        handlePlatformShare(makemytripUrl, "MakeMyTrip")
+                      }
+                      className="w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all duration-150 hover:shadow-md hover:scale-[1.01] active:scale-98 cursor-pointer focus:outline-none"
                       style={{
                         backgroundColor: COLORS.paperInset,
                         borderColor: COLORS.paperLine,
                       }}
                     >
                       <div className="flex items-center gap-3">
-                        <div className="size-9 rounded-lg bg-red-50 border border-red-200 flex items-center justify-center">
+                        <div className="size-9 rounded-xl bg-red-50 border border-red-200 flex items-center justify-center">
                           <LucideIcons.Plane className="size-5 text-red-500" />
                         </div>
                         <div className="text-left">
-                          <p className="text-xs font-bold" style={{ color: COLORS.ink }}>MakeMyTrip</p>
-                          <p className="text-[10px]" style={{ color: COLORS.inkMuted }}>Hotel &amp; Resort Stay</p>
+                          <p
+                            className="text-xs font-bold"
+                            style={{ color: COLORS.ink }}
+                          >
+                            MakeMyTrip
+                          </p>
+                          <p
+                            className="text-[10px]"
+                            style={{ color: COLORS.inkMuted }}
+                          >
+                            Hotel &amp; Resort Stay
+                          </p>
                         </div>
                       </div>
-                      <LucideIcons.ExternalLink className="size-4 opacity-50" style={{ color: COLORS.ink }} />
+                      <LucideIcons.ExternalLink
+                        className="size-4 opacity-50"
+                        style={{ color: COLORS.ink }}
+                      />
                     </button>
                   )}
                 </div>
 
-                {/* Back to Review Text Button */}
+                {/* Back to Review Options Button */}
                 <button
                   type="button"
-                  onClick={() => setViewState("review_ready")}
+                  onClick={() => setViewState("step1_rating")}
                   className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 hover:underline cursor-pointer"
                   style={{ color: COLORS.inkMuted }}
                 >
-                  <LucideIcons.ArrowLeft className="size-3.5" /> Back to Review Text
+                  <LucideIcons.ArrowLeft className="size-3.5" /> Back to Review Options
                 </button>
               </div>
             </div>
           )}
 
           {/* ═════════════════════════════════════════════════════════════════ */}
-          {/* SCREEN 6 — THANK YOU (Direct/Private Feedback) */}
+          {/* SCREEN 4 — THANK YOU (Direct/Private Feedback) */}
           {/* ═════════════════════════════════════════════════════════════════ */}
           {viewState === "thankyou" && (
             <div className="text-center py-6 animate-in fade-in duration-300">
               <div className="flex justify-center mb-4">
-                <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ backgroundColor: COLORS.stampOff }}>
-                  <LucideIcons.ShieldCheck className="w-8 h-8" style={{ color: COLORS.stamp }} />
+                <div
+                  className="w-16 h-16 rounded-full flex items-center justify-center border shadow-inner"
+                  style={{
+                    backgroundColor: `${COLORS.stamp}15`,
+                    borderColor: `${COLORS.stamp}30`,
+                  }}
+                >
+                  <LucideIcons.ShieldCheck
+                    className="w-8 h-8"
+                    style={{ color: COLORS.stamp }}
+                  />
                 </div>
               </div>
-              <h2 className="font-bold text-xl" style={{ color: COLORS.ink }}>
-                Feedback Submitted
+              <h2
+                className="font-bold text-xl sm:text-2xl"
+                style={{ color: COLORS.ink }}
+              >
+                Feedback Received
               </h2>
-              <p className="text-sm mt-3 leading-relaxed" style={{ color: COLORS.inkMuted }}>
-                Thank you for sharing your thoughts. Your feedback has been shared directly with the management at{" "}
-                <strong style={{ color: COLORS.ink }}>{businessName}</strong>.
+              <p
+                className="text-xs sm:text-sm mt-3 leading-relaxed"
+                style={{ color: COLORS.inkMuted }}
+              >
+                Thank you for sharing your thoughts. Your feedback has been shared directly with the team at{" "}
+                <strong style={{ color: COLORS.ink }}>{businessName}</strong> to help us improve.
               </p>
 
               <div className="mt-7">
@@ -890,11 +1005,11 @@ export function CustomerReviewScreen({
                   onClick={() => {
                     form.reset();
                     setViewState("step1_rating");
-                    setAiDraft("");
-                    setEditedReview("");
-                    setIsEditing(false);
+                    setReviewOptions([]);
+                    setEditingOptionId(null);
+                    setCopiedText("");
                   }}
-                  className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm transition-all duration-150 hover:opacity-90 active:scale-95 focus:outline-none cursor-pointer shadow-md"
+                  className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm transition-all duration-150 hover:opacity-95 active:scale-95 focus:outline-none cursor-pointer shadow-md"
                   style={{
                     backgroundColor: COLORS.stamp,
                     color: COLORS.paperInset,
@@ -905,13 +1020,18 @@ export function CustomerReviewScreen({
               </div>
             </div>
           )}
-
         </div>
 
         {/* Brand Footer */}
-        <div className="flex items-center justify-center gap-1.5 mt-6">
-          <LucideIcons.Sparkles className="w-3.5 h-3.5" style={{ color: COLORS.backdropMuted }} />
-          <span className="font-mono text-xs tracking-wide animate-pulse" style={{ color: COLORS.backdropMuted }}>
+        <div className="flex items-center justify-center gap-1.5 mt-5">
+          <LucideIcons.Sparkles
+            className="w-3.5 h-3.5"
+            style={{ color: COLORS.backdropMuted }}
+          />
+          <span
+            className="font-mono text-[11px] tracking-wide"
+            style={{ color: COLORS.backdropMuted }}
+          >
             Powered by Escellence · ReviewFlow AI
           </span>
         </div>
